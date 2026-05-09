@@ -84,12 +84,14 @@ export function PpoiStatus() {
   }
 
   async function runPir() {
+    if (pir.kind === "running") return;
+    const snapshot = lookup;
     setPir({ kind: "running" });
     try {
       const t0 = performance.now();
-      const isMatchedQuery = lookup.kind === "ok" && lookup.matched.length > 0;
-      const idx = isMatchedQuery && lookup.kind === "ok" && lookup.matched.length > 0
-        ? Number(BigInt(lookup.matched[0].hash) & BigInt(CHAIN.treeMaxItems - 1))
+      const isMatchedQuery = snapshot.kind === "ok" && snapshot.matched.length > 0;
+      const idx = isMatchedQuery && snapshot.kind === "ok"
+        ? Number(BigInt(snapshot.matched[0].hash) & BigInt(CHAIN.treeMaxItems - 1))
         : 0;
       const result = await boot.query(PPOI_INSTANCE, idx);
       const totalMs = performance.now() - t0;
@@ -273,7 +275,7 @@ export function PpoiStatus() {
                 <>
                   <div className="mt-3 text-[0.6rem] uppercase tracking-[0.14em] font-mono">
                     {pir.isMatchedQuery ? (
-                      <span className="text-success">queried row {pir.targetRow} · derived from your matched BC</span>
+                      <span className="text-success">queried row {pir.targetRow} · low-16-bits of matched BC hash</span>
                     ) : (
                       <span className="text-warning">queried row {pir.targetRow} · wire-shape demo (address not matched)</span>
                     )}

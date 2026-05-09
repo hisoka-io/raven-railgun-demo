@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
 import { useBoot } from "@/lib/boot-context";
 import { CHAIN, PIR_BENCH, WALLET_FOOTPRINT, PIR_TABLES } from "@/lib/numbers";
@@ -55,10 +55,13 @@ export function CommitTreePath() {
   const [leafIndex, setLeafIndex] = useState(0);
   const [state, setState] = useState<VerifyState>({ kind: "idle" });
   const [liveFill, setLiveFill] = useState<number | null>(null);
+  const runIdRef = useRef(0);
+  const mountedRef = useRef(true);
 
   const chosenInstance = INSTANCE_FOR_TREE(treeNumber);
 
   useEffect(() => {
+    setLiveFill(null);
     if (treeNumber !== CHAIN.liveTreeIndex) return;
     let cancelled = false;
     liveNextLeafIndex()
@@ -67,10 +70,22 @@ export function CommitTreePath() {
     return () => { cancelled = true; };
   }, [treeNumber]);
 
+  useEffect(() => {
+    setState({ kind: "idle" });
+    runIdRef.current += 1;
+  }, [treeNumber, leafIndex]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
   const maxLeafIndex = maxValidLeafFor(treeNumber, liveFill);
   const leafOutOfRange = maxLeafIndex !== null && leafIndex > maxLeafIndex;
 
   const indexerStatus = useIndexerStatus(chosenInstance);
+  const indexerStale = treeNumber === CHAIN.liveTreeIndex
+    && (indexerStatus?.lag ?? 0) > 200;
 
   const stagePhases = useMemo<{
     pir: StagePhase;
@@ -103,62 +118,90 @@ export function CommitTreePath() {
   }
 
   async function runVerify() {
-    const cold = await boot.ensureBooted(chosenInstance);
-    setState({ kind: "running", phase: "pir", progress: 0 });
+    if (leafOutOfRange) {
+      setState({ kind: "error", message: "leaf index out of range for this tree" });
+      return;
+    }
+    if (indexerStale) {
+      setState({ kind: "error", message: "indexer is mid-catch-up; retry once it converges" });
+      return;
+    }
+    const myRunId = ++runIdRef.current;
+    const myInstance = chosenInstance;
+    const myTree = treeNumber;
+    const myLeaf = leafIndex;
+    const cancelled = () => !mountedRef.current || runIdRef.current !== myRunId;
+    const safeSet = (s: VerifyState) => { if (!cancelled()) setState(s); };
 
-    const leafCommit = await fetchCommitmentAt(treeNumber, leafIndex).catch(() => null);
+    let cold;
+    try {
+      cold = await boot.ensureBooted(myInstance);
+    } catch (err) {
+      safeSet({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+      return;
+    }
+    if (cancelled()) return;
+    safeSet({ kind: "running", phase: "pir", progress: 0 });
 
-    const rows = [leafIndex, ...Array.from({ length: 16 }, (_, l) => siblingRowIndex(l, leafIndex))];
+    const leafCommit = await fetchCommitmentAt(myTree, myLeaf).catch(() => null);
+    if (cancelled()) return;
+
+    const rows = [myLeaf, ...Array.from({ length: 16 }, (_, l) => siblingRowIndex(l, myLeaf))];
     const recoveredHex: string[] = new Array(17);
     const siblings: SiblingResult[] = [];
     let done = 0;
-    const promises = rows.map(async (idx, slot) => {
-      const t0 = performance.now();
-      const result: QueryResult = await boot.query(chosenInstance, idx);
-      const postMs = performance.now() - t0;
-      recoveredHex[slot] = `0x${result.recoveredHex}`;
-      if (slot >= 1) {
-        siblings[slot - 1] = {
-          index: slot - 1,
-          hex: `0x${result.recoveredHex}`,
-          postMs,
-          upBytes: result.queryBytes,
-          downBytes: result.responseBytes,
-        };
-      }
-      done += 1;
-      setState({ kind: "running", phase: "pir", progress: done });
-    });
-    try {
-      await Promise.all(promises);
-    } catch (err) {
-      setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+    const settled = await Promise.allSettled(
+      rows.map(async (idx, slot) => {
+        const t0 = performance.now();
+        const result: QueryResult = await boot.query(myInstance, idx);
+        const postMs = performance.now() - t0;
+        recoveredHex[slot] = `0x${result.recoveredHex}`;
+        if (slot >= 1) {
+          siblings[slot - 1] = {
+            index: slot - 1,
+            hex: `0x${result.recoveredHex}`,
+            postMs,
+            upBytes: result.queryBytes,
+            downBytes: result.responseBytes,
+          };
+        }
+        done += 1;
+        if (!cancelled()) safeSet({ kind: "running", phase: "pir", progress: done });
+      })
+    );
+    if (cancelled()) return;
+    const firstReject = settled.find((s) => s.status === "rejected") as PromiseRejectedResult | undefined;
+    if (firstReject) {
+      const reason = firstReject.reason;
+      safeSet({ kind: "error", message: reason instanceof Error ? reason.message : String(reason) });
       return;
     }
 
-    setState({ kind: "running", phase: "fold" });
+    safeSet({ kind: "running", phase: "fold" });
     let foldedRoot = "";
     try {
       foldedRoot = await foldMerklePath(
         recoveredHex[0],
         siblings.map((s) => s.hex),
-        leafIndex
+        myLeaf
       );
     } catch (err) {
-      setState({ kind: "error", message: `fold failed: ${err instanceof Error ? err.message : String(err)}` });
+      safeSet({ kind: "error", message: `fold failed: ${err instanceof Error ? err.message : String(err)}` });
       return;
     }
+    if (cancelled()) return;
 
-    setState({ kind: "running", phase: "chain" });
+    safeSet({ kind: "running", phase: "chain" });
     let onChain = false;
     try {
-      onChain = await rootInHistory(treeNumber, foldedRoot);
+      onChain = await rootInHistory(myTree, foldedRoot);
     } catch (err) {
-      setState({ kind: "error", message: `chain verify failed: ${err instanceof Error ? err.message : String(err)}` });
+      safeSet({ kind: "error", message: `chain verify failed: ${err instanceof Error ? err.message : String(err)}` });
       return;
     }
+    if (cancelled()) return;
 
-    setState({
+    safeSet({
       kind: "done",
       siblings,
       pirLeafHex: recoveredHex[0],
@@ -179,12 +222,12 @@ export function CommitTreePath() {
           <h1 className="font-serif text-3xl sm:text-4xl mb-3">Commit-tree auth path, privately</h1>
           <p className="text-fg-secondary text-[0.95rem] leading-relaxed">
             Stock Railgun wallets must replay every shield + transact event ever appended on
-            chain (~{formatNumber(CHAIN.totalCommits)} commitments today across {CHAIN.staticTrees}
-            {" "}filled trees) and persist the full incremental Merkle tree plus a copy of every
-            raw commitment record locally. That is roughly {formatBytes(WALLET_FOOTPRINT.perDeviceRawBytes)}
-            {" "}of raw state per device, growing ~{CHAIN.dailyFillRate} commits per day. Phones
-            cannot keep up. Raven PIR-fetches the auth path on demand: pick any leaf in any
-            tree, recover its 16 sibling hashes via {16} encrypted queries against{" "}
+            chain across {CHAIN.staticTrees} filled trees plus the live tree, and persist the
+            full incremental Merkle tree plus a copy of every raw commitment record locally.
+            That is roughly {formatBytes(WALLET_FOOTPRINT.perDeviceRawBytes)} of raw state per
+            device, growing as new shields and transacts land. Phones cannot keep up. Raven
+            PIR-fetches the auth path on demand: pick any leaf in any tree, recover its 16
+            sibling hashes via {16} encrypted queries against{" "}
             <Tooltip
               content={
                 <div className="space-y-1">
@@ -229,7 +272,7 @@ export function CommitTreePath() {
           onChangeTree={setTreeNumber}
           onChangeLeaf={setLeafIndex}
           running={state.kind === "running"}
-          ready={boot.isReady(chosenInstance) && !leafOutOfRange}
+          ready={boot.isReady(chosenInstance) && !leafOutOfRange && !indexerStale}
           onRun={debouncedRun}
           progress={state.kind === "running" && state.phase === "pir" ? state.progress ?? 0 : undefined}
           maxLeafIndex={maxLeafIndex}
@@ -612,6 +655,13 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+const MEAN_LEAVES_PER_BLOCK = 0.04;
+
+function mismatchProbability(lagBlocks: number): number {
+  if (lagBlocks <= 0) return 0;
+  return 1 - Math.exp(-lagBlocks * MEAN_LEAVES_PER_BLOCK);
+}
+
 function IndexerFreshnessStrip({
   className,
   instance,
@@ -623,11 +673,21 @@ function IndexerFreshnessStrip({
   status: import("@/lib/use-indexer-status").IndexerStatus | null;
   isLive: boolean;
 }) {
-  if (!status || status.lastApplied === null || status.chainHead === null) return null;
+  if (!status) {
+    return (
+      <div className={`border border-fg-faint bg-bg-secondary px-4 py-2.5 text-[0.7rem] font-mono text-fg-muted ${className ?? ""}`}>
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-fg-faint mr-2 align-middle" />
+        <span className="uppercase tracking-[0.14em] text-[0.55rem]">{instance} indexer · status unavailable</span>
+      </div>
+    );
+  }
+  if (status.lastApplied === null || status.chainHead === null) return null;
   const lag = status.lag ?? Math.max(0, status.chainHead - status.lastApplied);
   const tone = lag <= 30 ? "ok" : lag <= 200 ? "warn" : "stale";
   const dot = tone === "ok" ? "bg-success" : tone === "warn" ? "bg-warning" : "bg-error";
   const label = tone === "ok" ? "fresh" : tone === "warn" ? "catching up" : "stale";
+  const risk = isLive ? mismatchProbability(lag) : 0;
+  const expectedMissed = isLive ? lag * MEAN_LEAVES_PER_BLOCK : 0;
 
   return (
     <div className={`border border-fg-faint bg-bg-secondary px-4 py-2.5 text-[0.7rem] font-mono text-fg-secondary ${className ?? ""}`}>
@@ -645,12 +705,26 @@ function IndexerFreshnessStrip({
           <span>events since boot <span className="text-fg">{formatNumber(status.events)}</span></span>
         )}
       </div>
+      {isLive && lag > 0 && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.7rem] text-fg-muted">
+          <span>
+            mismatch risk:{" "}
+            <span className={tone === "ok" ? "text-success" : tone === "warn" ? "text-warning" : "text-error"}>
+              ~{(risk * 100).toFixed(risk >= 0.95 ? 1 : 0)}%
+            </span>
+          </span>
+          <span>
+            expected leaves landed in lag window:{" "}
+            <span className="text-fg">~{expectedMissed.toFixed(1)}</span>
+          </span>
+        </div>
+      )}
       {isLive && lag > 30 && (
         <div className="mt-1.5 text-[0.7rem] text-fg-muted leading-relaxed">
           Tree {CHAIN.liveTreeIndex} is mid-catch-up. While the indexer is more than ~30 blocks
-          behind chain head, the local Merkle state can be transiently mid-rewrite and the
-          candidate root may not yet appear in <code>rootHistory</code>. Wait a beat or pick a
-          static tree (0, 1, 2) for the deterministic case.
+          behind chain head, the local IMT can be missing one or more recent insertions, so the
+          candidate root may not yet appear in <code>rootHistory</code>. Wait for the dot to go
+          green or pick a static tree (0, 1, 2) for the deterministic case.
         </div>
       )}
     </div>

@@ -21,8 +21,6 @@ export const CHAIN = {
   treeMaxItems: 65_536,
   staticTrees: 3,
   liveTreeIndex: 3,
-  totalCommits: 212_396,
-  dailyFillRate: 250,
 } as const;
 
 export const WALLET_FOOTPRINT = {

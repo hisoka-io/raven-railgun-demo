@@ -21,8 +21,10 @@ interface SiblingResult {
 type State =
   | { kind: "idle" }
   | { kind: "running"; done: number }
-  | { kind: "ok"; siblings: SiblingResult[] }
+  | { kind: "ok"; siblings: SiblingResult[]; pastFill: boolean }
   | { kind: "error"; message: string };
+
+const RAILGUN_ZERO_LEAF = "0488f89b25bc7011eaf6a5edce71aeafb9fe706faa3c0a5cd9cbe868ae3b9ffc";
 
 export function PpoiPath() {
   const boot = useBoot();
@@ -43,12 +45,13 @@ export function PpoiPath() {
   }
 
   async function runVerify() {
+    if (state.kind === "running") return;
     setState({ kind: "running", done: 0 });
-    try {
-      const siblings: SiblingResult[] = [];
-      let done = 0;
-      const promises = Array.from({ length: 16 }, async (_, level) => {
-        const idx = siblingRowIndex(level, leafIndex);
+    const myLeaf = leafIndex;
+    const siblings: SiblingResult[] = [];
+    const settled = await Promise.allSettled(
+      Array.from({ length: 16 }, async (_, level) => {
+        const idx = siblingRowIndex(level, myLeaf);
         const t0 = performance.now();
         const r = await boot.query(PPOI_PATH_INSTANCE, idx);
         siblings[level] = {
@@ -56,14 +59,19 @@ export function PpoiPath() {
           hex: `0x${r.recoveredHex}`,
           postMs: performance.now() - t0,
         };
-        done += 1;
-        setState({ kind: "running", done });
-      });
-      await Promise.all(promises);
-      setState({ kind: "ok", siblings });
-    } catch (err) {
-      setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+        setState((prev) =>
+          prev.kind === "running" ? { kind: "running", done: prev.done + 1 } : prev
+        );
+      })
+    );
+    const firstReject = settled.find((s) => s.status === "rejected") as PromiseRejectedResult | undefined;
+    if (firstReject) {
+      const reason = firstReject.reason;
+      setState({ kind: "error", message: reason instanceof Error ? reason.message : String(reason) });
+      return;
     }
+    const pastFill = siblings.every((s) => s.hex.toLowerCase().endsWith(RAILGUN_ZERO_LEAF));
+    setState({ kind: "ok", siblings, pastFill });
   }
 
   const phase: StagePhase = useMemo(
@@ -193,6 +201,15 @@ export function PpoiPath() {
                     defaultOpen: true,
                     body: (
                       <div className="space-y-2">
+                        {state.pastFill && (
+                          <div className="border border-warning/40 bg-warning/5 p-3 text-[0.78rem] text-fg-secondary leading-relaxed">
+                            <strong className="text-warning">All 16 siblings came back as the empty-leaf zero hash.</strong>
+                            {" "}This leaf index is past the current OFAC PPOI list fill, so the
+                            PPOI table returned the per-level zero padding instead of real
+                            sibling data. Pick a smaller leaf index, or check the operator
+                            page to see how many entries the list has indexed so far.
+                          </div>
+                        )}
                         {state.siblings.map((s) => (
                           <div key={s.index} className="grid grid-cols-12 gap-2 items-center text-mono-xs">
                             <span className="col-span-1 text-fg-muted">L{s.index}</span>

@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight, GitMerge, Layers, ShieldCheck, Terminal } from "lucide-react";
 import { useEventsStream } from "@/lib/use-events-stream";
 import { CHAIN, PIR_BENCH, WALLET_FOOTPRINT } from "@/lib/numbers";
-import { formatBytes, formatNumber } from "@/lib/format";
+import { formatBytes } from "@/lib/format";
 
 export function Overview() {
   const { status } = useEventsStream();
@@ -110,10 +110,8 @@ export function Overview() {
           event includes `npk` clear). The leak Raven closes is the wallet&apos;s own POSTs to
           the PPOI server, which carry per-IP UTXO clusters and spend-time inputs. Read more
           inside each tab.
-          Today: <strong className="text-fg-secondary">~{CHAIN.dailyFillRate} commits/day</strong> across
-          {" "}<strong className="text-fg-secondary">~{formatNumber(CHAIN.totalCommits)}</strong> on-chain commitments.
-          Manageable for desktop wallets. At 100k tx/day projected, mobile wallets cannot keep up.
-          PIR removes the local-IMT requirement.
+          Manageable for desktop wallets while volume stays low. At anything approaching
+          100k tx/day, mobile wallets cannot keep up. PIR removes the local-IMT requirement.
         </p>
       </div>
     </section>

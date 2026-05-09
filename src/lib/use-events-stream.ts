@@ -79,24 +79,21 @@ function ensureOpen() {
       broadcast();
     });
     es.addEventListener("error", () => {
-      s.state = "error";
+      try { es.close(); } catch { /* best effort */ }
+      s.source = null;
+      s.state = "closed";
       s.errorMessage = "stream error";
       broadcast();
-      if (es.readyState === EventSource.CLOSED) {
-        s.source = null;
-        s.state = "closed";
-        broadcast();
-        const idx = Math.min(s.reconnectAttempt, BACKOFF_SCHEDULE_MS.length - 1);
-        const delay = BACKOFF_SCHEDULE_MS[idx];
-        s.reconnectAttempt += 1;
-        if (s.reconnectTimer !== null) window.clearTimeout(s.reconnectTimer);
-        s.reconnectTimer = window.setTimeout(() => {
-          s.reconnectTimer = null;
-          if (!singleton?.source && (singleton?.subscribers.size ?? 0) > 0) {
-            ensureOpen();
-          }
-        }, delay);
-      }
+      const idx = Math.min(s.reconnectAttempt, BACKOFF_SCHEDULE_MS.length - 1);
+      const delay = BACKOFF_SCHEDULE_MS[idx];
+      s.reconnectAttempt += 1;
+      if (s.reconnectTimer !== null) window.clearTimeout(s.reconnectTimer);
+      s.reconnectTimer = window.setTimeout(() => {
+        s.reconnectTimer = null;
+        if (!singleton?.source && (singleton?.subscribers.size ?? 0) > 0) {
+          ensureOpen();
+        }
+      }, delay);
     });
   } catch (err) {
     s.errorMessage = err instanceof Error ? err.message : String(err);
