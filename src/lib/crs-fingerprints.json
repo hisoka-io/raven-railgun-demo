@@ -1,0 +1,42 @@
+{
+  "capturedAt": "2026-05-08T16:47:51.130Z",
+  "source": "https://raven.hisoka.io",
+  "instances": {
+    "commit-tree-0": {
+      "instance": "commit-tree-0",
+      "sha256": "ca8cd483dfd3703888daf7526dae72d4c02d4c8d8d8c7e51fea58ce73b6be9af",
+      "bytes": 35050602,
+      "capturedAt": "2026-05-08T16:48:03.106Z"
+    },
+    "commit-tree-1": {
+      "instance": "commit-tree-1",
+      "sha256": "7b70a12d3244be49028822a1b683d4eaacdc0d95592e5e77122706e83fafafda",
+      "bytes": 35050602,
+      "capturedAt": "2026-05-08T16:48:13.404Z"
+    },
+    "commit-tree-2": {
+      "instance": "commit-tree-2",
+      "sha256": "b91811be862649a81a7b97601ce1b5784268bb8bea6f35368dd2c9efd6b72362",
+      "bytes": 35050602,
+      "capturedAt": "2026-05-08T16:48:24.049Z"
+    },
+    "commit-tree-3": {
+      "instance": "commit-tree-3",
+      "sha256": "712d301c26c6a62830a4673f5e8ce46c40187e27b36572cbb412fdd87886627a",
+      "bytes": 35050602,
+      "capturedAt": "2026-05-08T16:48:38.181Z"
+    },
+    "ppoi-status-ofac": {
+      "instance": "ppoi-status-ofac",
+      "sha256": "f9087ef1b2b211a2af9cf279af713ea57ce45faf9d46e330639f0693f0c7e8f3",
+      "bytes": 35050602,
+      "capturedAt": "2026-05-08T16:49:08.998Z"
+    },
+    "ppoi-paths-ofac": {
+      "instance": "ppoi-paths-ofac",
+      "sha256": "a2d2d31635183e6c247fc2d76ba8a199744dcd77d187856f2dda9020721d947a",
+      "bytes": 35050602,
+      "capturedAt": "2026-05-08T16:49:18.768Z"
+    }
+  }
+}

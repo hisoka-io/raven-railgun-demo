@@ -1,0 +1,16 @@
+{
+  "name": "raven-inspire-client-wasm",
+  "type": "module",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "files": [
+    "raven_inspire_client_wasm_bg.wasm",
+    "raven_inspire_client_wasm.js",
+    "raven_inspire_client_wasm.d.ts"
+  ],
+  "main": "raven_inspire_client_wasm.js",
+  "types": "raven_inspire_client_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

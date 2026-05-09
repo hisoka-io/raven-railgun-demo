@@ -1,0 +1,17 @@
+node_modules
+dist
+.vite
+.cache
+*.log
+*.tsbuildinfo
+.DS_Store
+.env
+.env.local
+.env.*.local
+no-commit
+no-commit-screens
+C:\\Users\\*
+lighthouse.*
+.idea
+.vscode
+*.swp
