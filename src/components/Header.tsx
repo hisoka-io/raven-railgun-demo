@@ -17,7 +17,7 @@ export function Header() {
             href="https://github.com/hisoka-io"
             target="_blank"
             rel="noopener noreferrer"
-            className="hidden sm:inline text-[0.65rem] uppercase tracking-wider text-fg-muted hover:text-fg transition-colors"
+            className="hidden sm:inline font-mono text-[0.7rem] font-medium uppercase tracking-[0.16em] text-fg-secondary hover:text-fg transition-colors"
           >
             GitHub
           </a>

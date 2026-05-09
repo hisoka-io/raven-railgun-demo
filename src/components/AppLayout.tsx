@@ -26,11 +26,11 @@ export function AppLayout() {
               end={tab.to === "/"}
               className={({ isActive }) =>
                 cn(
-                  "shrink-0 px-4 py-3 text-[0.75rem] uppercase tracking-[0.1em] font-mono",
+                  "shrink-0 px-4 py-3 text-[0.75rem] font-medium uppercase tracking-[0.18em] font-mono",
                   "border-b-2 transition-colors",
                   isActive
                     ? "border-accent text-fg"
-                    : "border-transparent text-fg-muted hover:text-fg-secondary"
+                    : "border-transparent text-fg-secondary hover:text-fg"
                 )
               }
             >

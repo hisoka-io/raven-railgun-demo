@@ -32,9 +32,9 @@ export function StatusPill() {
   const instanceCount = instances.length;
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 border border-fg-faint text-mono-xs text-fg-secondary">
+    <div className="flex items-center gap-2 px-3 py-1.5 border border-fg-faint font-mono text-[0.7rem] font-medium tracking-[0.06em] text-fg-secondary">
       <span className={`inline-block w-1.5 h-1.5 rounded-full ${color} animate-pulse-soft`} />
-      <span className="uppercase tracking-wider text-[0.55rem] text-fg-muted">{label}</span>
+      <span className="uppercase tracking-[0.06em] text-[0.625rem] font-medium text-fg-secondary">{label}</span>
       <span className="text-fg-faint">·</span>
       <span>raven.hisoka.io</span>
       {instanceCount > 0 && (
