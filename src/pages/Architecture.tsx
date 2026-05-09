@@ -1,218 +1,137 @@
 import { useState } from "react";
-import { ChevronRight, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-interface Box {
-  id: string;
-  title: string;
-  subtitle: string;
+type NodeKey = "wallet" | "sdk" | "raven" | "nox" | "mainnet";
+
+interface NodeData {
+  name: string;
+  desc: string;
+  eyebrow: string;
+  role: string;
   solves: string[];
-  doesNotSolve: string[];
-  link?: { href: string; label: string };
+  skips: string[];
 }
 
-const BOXES: Box[] = [
-  {
-    id: "wallet",
-    title: "Wallet (any Railgun client)",
-    subtitle: "engine + wallet sdk; unmodified",
-    solves: [
-      "Owns the recipient master key + viewing key.",
-      "Implements the PoI workflow today; Raven swaps one URL.",
-    ],
-    doesNotSolve: [
-      "Wallet boot still replays every shield/transact event before Raven; mobile wallets cannot keep up.",
-      "PIR removes the local IMT requirement entirely.",
-    ],
-    link: {
-      href: "https://github.com/Railgun-Community/engine",
-      label: "@railgun-community/engine",
-    },
+const DATA: Record<NodeKey, NodeData> = {
+  wallet: {
+    name: "Wallet",
+    desc: "Any Railgun client",
+    eyebrow: "Selected · client",
+    role: "Any Railgun client. The wallet stays unmodified — no API surface change, no new dependencies in your app.",
+    solves: ["Nothing on its own — privacy comes from the layers below."],
+    skips: ["Without Raven and NOX, every read leaks who is asking what."],
   },
-  {
-    id: "raven-sdk",
-    title: "Raven adapter SDK",
-    subtitle: "@raven/railgun-poi-node-interface · 1-line drop-in",
+  sdk: {
+    name: "Raven adapter SDK",
+    desc: "1-line drop-in",
+    eyebrow: "Selected · client",
+    role: "A 1-line drop-in that replaces the default RPC adapter. Same shape, private retrieval underneath.",
     solves: [
-      "Drop-in replacement for the wallet's PoI node contract; one URL changes.",
-      "Owns the WASM cold path, IndexedDB warm path, and per-query path.",
-      "Bearer-gated; no chain credentials touched.",
+      "Encrypts queries before they leave the client.",
+      "Folds Merkle proofs locally.",
     ],
-    doesNotSolve: [
-      "Wallet UX (key management, broadcaster selection).",
-      "Transport-layer privacy; that is NOX.",
-    ],
+    skips: ["Cannot hide your IP — that's NOX's job."],
   },
-  {
-    id: "raven-server",
-    title: "raven.hisoka.io",
-    subtitle: "axum + InsPIRe engine · 6 instances live",
+  raven: {
+    name: "raven.hisoka.io",
+    desc: "query layer · private retrieval",
+    eyebrow: "Selected · query layer",
+    role: "The strict query layer. Wallet asks, Raven answers, the operator only ever sees ciphertext.",
     solves: [
       "Per-IP UTXO clustering at PPOI status lookup.",
       "Spend-time deanon at PPOI Merkle path lookup.",
       "Local IMT requirement on commit-tree auth-path lookup.",
     ],
-    doesNotSolve: [
-      "Submission-side leaks (submitTransactProof carries blindedCommitmentsOut[] today).",
-      "Subsquid public-side data; that is by design public.",
+    skips: [
+      "Submission-side leaks &mdash; <code>submitTransactProof</code> still carries <code>blindedCommitmentsOut[]</code>. NOX covers this.",
+      "Subsquid public-side data &mdash; that is, by design, public.",
     ],
   },
-  {
-    id: "nox",
-    title: "NOX (separate project)",
-    subtitle: "Sphinx mixnet for transport",
+  nox: {
+    name: "NOX",
+    desc: "transport layer · sphinx mixnet",
+    eyebrow: "Selected · transport layer",
+    role: "A separate strict layer. Sphinx mixnet for transport-layer privacy — hides who is talking to whom.",
     solves: [
-      "Source IP leak to broadcaster.",
-      "Waku pubsub topic + relay timing correlation.",
+      "Submission-side metadata leaks at the network layer.",
+      "Operator IP correlation across requests.",
     ],
-    doesNotSolve: [
-      "Query-level leaks; that is Raven.",
-      "On-chain submission semantics.",
-    ],
-    link: { href: "https://hisoka.io/nox", label: "hisoka.io/nox" },
+    skips: ["What you read — that's Raven's job."],
   },
-  {
-    id: "ppoi-mirror",
-    title: "Indexer + PPOI mirror",
-    subtitle: "alloy + reqwest · feeds Raven server state",
+  mainnet: {
+    name: "Ethereum mainnet",
+    desc: "RailgunSmartWallet contract",
+    eyebrow: "Selected · source of truth",
+    role: "The contract is the authority. Roots verified locally against on-chain state.",
     solves: [
-      "Pulls Shield/Transact events from Ethereum and PPOI events from upstream.",
-      "Persists state via bincode-snapshot + WAL + manifest.",
+      "Provides the canonical commit-tree root.",
+      "All proofs anchor here.",
     ],
-    doesNotSolve: [
-      "Operator does not run a public PPOI list itself; it mirrors Railgun&apos;s today.",
-    ],
+    skips: ["Public by design. Not a privacy layer."],
   },
-  {
-    id: "broadcaster",
-    title: "Broadcaster network",
-    subtitle: "out of scope for Raven",
-    solves: [],
-    doesNotSolve: [
-      "Broadcaster sees IP + tx-bytes today; NOX closes this hop.",
-      "Future: Waku integration paths (nwaku, rln).",
-    ],
-  },
-  {
-    id: "chain",
-    title: "Ethereum mainnet",
-    subtitle: "RailgunSmartWallet contract",
-    solves: [
-      "Anchors every commitment via Shield/Transact events.",
-      "rootHistory(treeNumber, root) lets anyone verify a Merkle path was real.",
-    ],
-    doesNotSolve: [
-      "Transact npk is encrypted, but Shield npk and EOA depositor are public.",
-    ],
-    link: {
-      href: "https://etherscan.io/address/0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9",
-      label: "0xfa70...4b9 on Etherscan",
-    },
-  },
-];
+};
+
+const STROKE = "rgba(232,229,224,0.16)";
 
 export function Architecture() {
-  const [active, setActive] = useState<string>("raven-server");
-  const box = BOXES.find((b) => b.id === active)!;
+  const [active, setActive] = useState<NodeKey>("raven");
+  const d = DATA[active];
 
   return (
     <section className="bg-bg">
-      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-10 py-12 sm:py-16">
-        <div className="max-w-3xl mb-8">
-          <p className="text-[0.6rem] uppercase tracking-[0.18em] text-fg-muted font-mono mb-2">
-            where raven sits
+      <div className="max-w-[880px] mx-auto px-4 sm:px-6 lg:px-10 pt-20 sm:pt-24 pb-24">
+        {/* Hero */}
+        <div>
+          <p className="font-mono text-[0.75rem] font-medium uppercase tracking-[0.22em] text-fg-secondary">
+            Where Raven sits
           </p>
-          <h1 className="font-serif text-3xl sm:text-4xl mb-3">Architecture</h1>
-          <p className="text-fg-secondary text-[0.95rem] leading-relaxed">
-            Click any box for &quot;what it solves&quot; vs &quot;what it does not&quot;. Raven
-            is one strict layer (private retrieval). NOX is a separate strict layer
-            (transport). Together they cover both query-level and transport-level leaks; the
-            wallet, contracts, and circuits stay unchanged.
+          <h1 className="mt-4 font-serif text-6xl sm:text-7xl lg:text-[88px] leading-none tracking-tight font-normal">
+            Architecture
+          </h1>
+          <p className="mt-7 text-fg-secondary text-lg leading-relaxed max-w-[56ch]">
+            Two strict privacy layers, stacked. Raven hides{" "}
+            <em className="font-serif italic">what you read</em>. NOX hides{" "}
+            <em className="font-serif italic">how you send</em>. Wallet, contracts, and
+            circuits stay unchanged.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-px bg-fg-faint">
-          <div className="lg:col-span-7 bg-bg-secondary p-5">
-            <div className="text-[0.55rem] uppercase tracking-[0.14em] text-fg-muted font-mono mb-4">
-              flow
-            </div>
-            <div className="space-y-2 font-mono text-[0.78rem]">
-              <Layer
-                title="[ Wallet (any Railgun client) ]"
-                id="wallet"
-                active={active}
-                onClick={setActive}
-              />
-              <Arrow />
-              <Layer
-                title="[ Raven adapter SDK (1-line drop-in) ]"
-                id="raven-sdk"
-                active={active}
-                onClick={setActive}
-              />
-              <Arrow />
-              <div className="grid grid-cols-2 gap-2">
-                <Layer
-                  title="[ raven.hisoka.io ]"
-                  id="raven-server"
-                  active={active}
-                  onClick={setActive}
-                  multiline={["axum + InsPIRe engine", "private retrieval over CRS"]}
-                />
-                <Layer
-                  title="[ NOX (separate) ]"
-                  id="nox"
-                  active={active}
-                  onClick={setActive}
-                  multiline={["Sphinx mixnet", "transport-layer privacy"]}
-                />
-              </div>
-              <Arrow />
-              <div className="grid grid-cols-2 gap-2">
-                <Layer
-                  title="[ Indexer + PPOI mirror ]"
-                  id="ppoi-mirror"
-                  active={active}
-                  onClick={setActive}
-                />
-                <Layer
-                  title="[ broadcaster network ]"
-                  id="broadcaster"
-                  active={active}
-                  onClick={setActive}
-                />
-              </div>
-              <Arrow />
-              <Layer
-                title="[ Ethereum mainnet ]"
-                id="chain"
-                active={active}
-                onClick={setActive}
-                multiline={["RailgunSmartWallet contract"]}
-              />
+        {/* Diagram */}
+        <div className="mt-20 sm:mt-24 flex flex-col items-center">
+          <NodeBtn k="wallet" active={active} onClick={setActive} data={DATA.wallet} />
+          <Connector />
+          <NodeBtn k="sdk" active={active} onClick={setActive} data={DATA.sdk} />
+          <BranchSplit />
+          <div className="grid grid-cols-1 sm:grid-cols-2 w-full max-w-[720px]">
+            <NodeBtn k="raven" active={active} onClick={setActive} data={DATA.raven} />
+            <div className="border-t sm:border-t-0 sm:border-l border-fg-faint">
+              <NodeBtn k="nox" active={active} onClick={setActive} data={DATA.nox} />
             </div>
           </div>
+          <BranchMerge />
+          <NodeBtn
+            k="mainnet"
+            active={active}
+            onClick={setActive}
+            data={DATA.mainnet}
+          />
+        </div>
 
-          <div className="lg:col-span-5 bg-bg-secondary p-5">
-            <div className="text-[0.55rem] uppercase tracking-[0.14em] text-fg-muted font-mono mb-2">
-              {box.subtitle}
-            </div>
-            <h3 className="font-serif text-2xl mb-4">{box.title}</h3>
-            <div className="space-y-4">
-              <Section heading="what it solves" lines={box.solves} accent="success" />
-              <Section heading="what it does not solve" lines={box.doesNotSolve} accent="warn" />
-            </div>
-            {box.link && (
-              <a
-                href={box.link.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-5 inline-flex items-center gap-1 text-[0.78rem] text-accent hover:underline"
-              >
-                {box.link.label}
-                <ExternalLink size={11} />
-              </a>
-            )}
+        {/* Detail */}
+        <div className="mt-20 sm:mt-24 pt-10 sm:pt-12 border-t border-fg-faint">
+          <p className="font-mono text-[0.7rem] font-medium uppercase tracking-[0.22em] text-fg-muted">
+            {d.eyebrow}
+          </p>
+          <h2 className="mt-3 font-serif text-5xl sm:text-6xl text-accent leading-[1.05] tracking-tight font-normal">
+            {d.name}
+          </h2>
+          <p className="mt-4 mb-10 text-fg-secondary text-[1.0625rem] max-w-[56ch] leading-relaxed">
+            {d.role}
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-10 sm:gap-14">
+            <ListBlock heading="What it solves" tone="green" items={d.solves} />
+            <ListBlock heading="What it does not" tone="muted" items={d.skips} />
           </div>
         </div>
       </div>
@@ -220,90 +139,119 @@ export function Architecture() {
   );
 }
 
-function Layer({
-  title,
-  id,
+function NodeBtn({
+  k,
   active,
   onClick,
-  multiline,
+  data,
 }: {
-  title: string;
-  id: string;
-  active: string;
-  onClick: (id: string) => void;
-  multiline?: string[];
+  k: NodeKey;
+  active: NodeKey;
+  onClick: (k: NodeKey) => void;
+  data: NodeData;
 }) {
+  const isActive = active === k;
   return (
     <button
       type="button"
-      onClick={() => onClick(id)}
-      className={cn(
-        "w-full text-left px-3 py-2 border transition-colors",
-        active === id
-          ? "border-accent bg-accent-dim text-fg"
-          : "border-fg-faint bg-bg hover:border-fg-muted text-fg-secondary"
-      )}
+      onClick={() => onClick(k)}
+      className="w-full max-w-[520px] text-center px-6 py-5 sm:py-6 transition-opacity hover:opacity-70 cursor-pointer"
     >
-      <div>{title}</div>
-      {multiline?.map((line) => (
-        <div key={line} className="text-[0.7rem] text-fg-muted ml-2">
-          {line}
-        </div>
-      ))}
+      <div
+        className={cn(
+          "font-serif text-2xl sm:text-[28px] leading-[1.1] font-normal",
+          isActive ? "text-accent" : "text-fg"
+        )}
+      >
+        {data.name}
+      </div>
+      <div className="mt-2 font-mono text-[0.75rem] text-fg-muted tracking-wide">
+        {data.desc}
+      </div>
     </button>
   );
 }
 
-function Arrow() {
+function Connector() {
+  return <div className="w-px h-12 bg-fg-faint" aria-hidden="true" />;
+}
+
+function BranchSplit() {
   return (
-    <div className="flex justify-center text-fg-muted my-1">
-      <ChevronRight className="rotate-90" size={14} />
+    <div className="hidden sm:block w-full max-w-[720px] h-12" aria-hidden="true">
+      <svg
+        viewBox="0 0 720 48"
+        preserveAspectRatio="none"
+        className="w-full h-full block"
+      >
+        <path
+          d="M 360 0 L 360 24 L 180 24 L 180 48"
+          stroke={STROKE}
+          strokeWidth="1"
+          fill="none"
+        />
+        <path
+          d="M 360 24 L 540 24 L 540 48"
+          stroke={STROKE}
+          strokeWidth="1"
+          fill="none"
+        />
+      </svg>
     </div>
   );
 }
 
-function Section({
+function BranchMerge() {
+  return (
+    <div className="hidden sm:block w-full max-w-[720px] h-12" aria-hidden="true">
+      <svg
+        viewBox="0 0 720 48"
+        preserveAspectRatio="none"
+        className="w-full h-full block"
+      >
+        <path
+          d="M 180 0 L 180 24 L 360 24 L 360 48"
+          stroke={STROKE}
+          strokeWidth="1"
+          fill="none"
+        />
+        <path
+          d="M 540 0 L 540 24 L 360 24"
+          stroke={STROKE}
+          strokeWidth="1"
+          fill="none"
+        />
+      </svg>
+    </div>
+  );
+}
+
+function ListBlock({
   heading,
-  lines,
-  accent,
+  tone,
+  items,
 }: {
   heading: string;
-  lines: string[];
-  accent: "success" | "warn";
+  tone: "green" | "muted";
+  items: string[];
 }) {
-  if (lines.length === 0) {
-    return (
-      <div>
-        <div
-          className={cn(
-            "text-[0.55rem] uppercase tracking-[0.14em] font-mono mb-1",
-            accent === "success" ? "text-success" : "text-warning"
-          )}
-        >
-          {heading}
-        </div>
-        <p className="text-fg-muted text-[0.78rem]">(none in scope)</p>
-      </div>
-    );
-  }
   return (
     <div>
       <div
         className={cn(
-          "text-[0.55rem] uppercase tracking-[0.14em] font-mono mb-2",
-          accent === "success" ? "text-success" : "text-warning"
+          "font-mono text-[0.7rem] font-medium uppercase tracking-[0.22em] pb-3.5 border-b border-fg-faint mb-4",
+          tone === "green" ? "text-success" : "text-fg-muted"
         )}
       >
         {heading}
       </div>
-      <ul className="space-y-1.5 text-[0.85rem] text-fg-secondary leading-relaxed">
-        {lines.map((line) => (
-          <li key={line} className="flex gap-2">
-            <span className={cn("shrink-0", accent === "success" ? "text-success" : "text-warning")}>
-              ·
-            </span>
-            <span>{line}</span>
-          </li>
+      <ul className="flex flex-col gap-3.5 list-none p-0 m-0 [&_code]:font-mono [&_code]:text-[13px] [&_code]:text-fg">
+        {items.map((line, i) => (
+          <li
+            key={i}
+            className="text-[0.95rem] text-fg-secondary leading-[1.55]"
+            dangerouslySetInnerHTML={{ __html: line }}
+          />
         ))}
       </ul>
     </div>
