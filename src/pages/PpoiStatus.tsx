@@ -81,6 +81,7 @@ export function PpoiStatus() {
   }
 
   async function runPir(currentLookup: LookupState) {
+    if (pir.kind === "running") return;
     setPir({ kind: "running" });
     try {
       const t0 = performance.now();

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Check } from "lucide-react";
 import { useBoot } from "@/lib/boot-context";
 import { CHAIN, PIR_BENCH, WALLET_FOOTPRINT, PIR_TABLES } from "@/lib/numbers";
@@ -55,10 +55,13 @@ export function CommitTreePath() {
   const [leafIndex, setLeafIndex] = useState(0);
   const [state, setState] = useState<VerifyState>({ kind: "idle" });
   const [liveFill, setLiveFill] = useState<number | null>(null);
+  const runIdRef = useRef(0);
+  const mountedRef = useRef(true);
 
   const chosenInstance = INSTANCE_FOR_TREE(treeNumber);
 
   useEffect(() => {
+    setLiveFill(null);
     if (treeNumber !== CHAIN.liveTreeIndex) return;
     let cancelled = false;
     liveNextLeafIndex()
@@ -67,10 +70,22 @@ export function CommitTreePath() {
     return () => { cancelled = true; };
   }, [treeNumber]);
 
+  useEffect(() => {
+    setState({ kind: "idle" });
+    runIdRef.current += 1;
+  }, [treeNumber, leafIndex]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
   const maxLeafIndex = maxValidLeafFor(treeNumber, liveFill);
   const leafOutOfRange = maxLeafIndex !== null && leafIndex > maxLeafIndex;
 
   const indexerStatus = useIndexerStatus(chosenInstance);
+  const indexerStale = treeNumber === CHAIN.liveTreeIndex
+    && (indexerStatus?.lag ?? 0) > 200;
 
   const stagePhases = useMemo<{
     pir: StagePhase;
@@ -103,67 +118,95 @@ export function CommitTreePath() {
   }
 
   async function runVerify() {
-    const cold = await boot.ensureBooted(chosenInstance);
+    if (leafOutOfRange) {
+      setState({ kind: "error", message: "leaf index out of range for this tree" });
+      return;
+    }
+    if (indexerStale) {
+      setState({ kind: "error", message: "indexer is mid-catch-up; retry once it converges" });
+      return;
+    }
+    const myRunId = ++runIdRef.current;
+    const myInstance = chosenInstance;
+    const myTree = treeNumber;
+    const myLeaf = leafIndex;
+    const cancelled = () => !mountedRef.current || runIdRef.current !== myRunId;
+    const safeSet = (s: VerifyState) => { if (!cancelled()) setState(s); };
     const wallStart = performance.now();
-    setState({ kind: "running", phase: "pir", progress: 0 });
 
-    const leafCommit = await fetchCommitmentAt(treeNumber, leafIndex).catch(() => null);
+    let cold;
+    try {
+      cold = await boot.ensureBooted(myInstance);
+    } catch (err) {
+      safeSet({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+      return;
+    }
+    if (cancelled()) return;
+    safeSet({ kind: "running", phase: "pir", progress: 0 });
 
-    const rows = [leafIndex, ...Array.from({ length: 16 }, (_, l) => siblingRowIndex(l, leafIndex))];
+    const leafCommit = await fetchCommitmentAt(myTree, myLeaf).catch(() => null);
+    if (cancelled()) return;
+
+    const rows = [myLeaf, ...Array.from({ length: 16 }, (_, l) => siblingRowIndex(l, myLeaf))];
     const recoveredHex: string[] = new Array(17);
     const siblings: SiblingResult[] = [];
     let totalUpBytes = 0;
     let totalDownBytes = 0;
     let done = 0;
-    const promises = rows.map(async (idx, slot) => {
-      const t0 = performance.now();
-      const result: QueryResult = await boot.query(chosenInstance, idx);
-      const postMs = performance.now() - t0;
-      recoveredHex[slot] = `0x${result.recoveredHex}`;
-      totalUpBytes += result.queryBytes;
-      totalDownBytes += result.responseBytes;
-      if (slot >= 1) {
-        siblings[slot - 1] = {
-          index: slot - 1,
-          hex: `0x${result.recoveredHex}`,
-          postMs,
-          upBytes: result.queryBytes,
-          downBytes: result.responseBytes,
-        };
-      }
-      done += 1;
-      setState({ kind: "running", phase: "pir", progress: done });
-    });
-    try {
-      await Promise.all(promises);
-    } catch (err) {
-      setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+    const settled = await Promise.allSettled(
+      rows.map(async (idx, slot) => {
+        const t0 = performance.now();
+        const result: QueryResult = await boot.query(myInstance, idx);
+        const postMs = performance.now() - t0;
+        recoveredHex[slot] = `0x${result.recoveredHex}`;
+        totalUpBytes += result.queryBytes;
+        totalDownBytes += result.responseBytes;
+        if (slot >= 1) {
+          siblings[slot - 1] = {
+            index: slot - 1,
+            hex: `0x${result.recoveredHex}`,
+            postMs,
+            upBytes: result.queryBytes,
+            downBytes: result.responseBytes,
+          };
+        }
+        done += 1;
+        if (!cancelled()) safeSet({ kind: "running", phase: "pir", progress: done });
+      })
+    );
+    if (cancelled()) return;
+    const firstReject = settled.find((s) => s.status === "rejected") as PromiseRejectedResult | undefined;
+    if (firstReject) {
+      const reason = firstReject.reason;
+      safeSet({ kind: "error", message: reason instanceof Error ? reason.message : String(reason) });
       return;
     }
 
-    setState({ kind: "running", phase: "fold" });
+    safeSet({ kind: "running", phase: "fold" });
     let foldedRoot = "";
     try {
       foldedRoot = await foldMerklePath(
         recoveredHex[0],
         siblings.map((s) => s.hex),
-        leafIndex
+        myLeaf
       );
     } catch (err) {
-      setState({ kind: "error", message: `fold failed: ${err instanceof Error ? err.message : String(err)}` });
+      safeSet({ kind: "error", message: `fold failed: ${err instanceof Error ? err.message : String(err)}` });
       return;
     }
+    if (cancelled()) return;
 
-    setState({ kind: "running", phase: "chain" });
+    safeSet({ kind: "running", phase: "chain" });
     let onChain = false;
     try {
-      onChain = await rootInHistory(treeNumber, foldedRoot);
+      onChain = await rootInHistory(myTree, foldedRoot);
     } catch (err) {
-      setState({ kind: "error", message: `chain verify failed: ${err instanceof Error ? err.message : String(err)}` });
+      safeSet({ kind: "error", message: `chain verify failed: ${err instanceof Error ? err.message : String(err)}` });
       return;
     }
+    if (cancelled()) return;
 
-    setState({
+    safeSet({
       kind: "done",
       siblings,
       pirLeafHex: recoveredHex[0],
@@ -177,7 +220,7 @@ export function CommitTreePath() {
     void cold;
   }
 
-  const ready = boot.isReady(chosenInstance) && !leafOutOfRange;
+  const ready = boot.isReady(chosenInstance) && !leafOutOfRange && !indexerStale;
   const running = state.kind === "running";
   const inputMax = maxLeafIndex ?? CHAIN.treeMaxItems - 1;
 
@@ -335,9 +378,9 @@ export function CommitTreePath() {
             <div className="text-fg-secondary leading-relaxed max-w-[72ch]">
               <p>
                 Stock Railgun wallets must replay every shield and transact event ever appended on
-                chain (~{formatNumber(CHAIN.totalCommits)} commitments today across {CHAIN.staticTrees}
-                {" "}filled trees) and persist the full incremental Merkle tree plus a copy of every
-                raw commitment record locally. Raven PIR-fetches the auth path on demand: pick any
+                chain (across {CHAIN.staticTrees} filled trees plus the live tree) and persist the
+                full incremental Merkle tree plus a copy of every raw commitment record locally.
+                Raven PIR-fetches the auth path on demand: pick any
                 leaf in any tree, recover its 16 sibling hashes via 16 encrypted queries against{" "}
                 <code className="font-mono text-[0.85rem]">{chosenInstance}</code>, fold them
                 locally with Poseidon, ask mainnet whether the root agrees.
@@ -354,6 +397,9 @@ export function CommitTreePath() {
                 applied <span className="text-fg">{formatNumber(indexerStatus.lastApplied)}</span>
                 {" · "}head <span className="text-fg">{formatNumber(indexerStatus.chainHead)}</span>
                 {" · "}lag <span className="text-fg">{formatNumber(indexerStatus.lag ?? Math.max(0, indexerStatus.chainHead - indexerStatus.lastApplied))}</span> blk
+                {indexerStale && (
+                  <span className="ml-3 text-warning">stale · pick a static tree</span>
+                )}
               </div>
             )}
 

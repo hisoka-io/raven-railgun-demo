@@ -105,7 +105,7 @@ export function BootProvider({ children }: { children: ReactNode }) {
   const inFlight = useRef<Map<string, Promise<ColdResult>>>(new Map());
   const ready = useRef<Set<string>>(new Set());
   const coldResults = useRef<Map<string, ColdResult>>(new Map());
-  const failed = useRef<Map<string, Error>>(new Map());
+  const failed = useRef<Map<string, { error: Error; expiresAt: number }>>(new Map());
   const toast = useToast();
   const toastIds = useRef<Map<string, number>>(new Map());
 
@@ -154,7 +154,10 @@ export function BootProvider({ children }: { children: ReactNode }) {
       const existing = inFlight.current.get(instance);
       if (existing) return existing;
       const cachedFail = failed.current.get(instance);
-      if (cachedFail) throw cachedFail;
+      if (cachedFail) {
+        if (Date.now() < cachedFail.expiresAt) throw cachedFail.error;
+        failed.current.delete(instance);
+      }
 
       const p = (async () => {
         const expected = expectedFingerprint(instance);
@@ -199,7 +202,8 @@ export function BootProvider({ children }: { children: ReactNode }) {
           return cold;
         } catch (err) {
           const errorObj = err instanceof Error ? err : new Error(String(err));
-          failed.current.set(instance, errorObj);
+          const ttlMs = errorObj.message.includes("401") ? 0 : 30_000;
+          if (ttlMs > 0) failed.current.set(instance, { error: errorObj, expiresAt: Date.now() + ttlMs });
           setStates((prev) => ({
             ...prev,
             [instance]: {
@@ -245,6 +249,8 @@ export function BootProvider({ children }: { children: ReactNode }) {
     ready.current.clear();
     coldResults.current.clear();
     failed.current.clear();
+    inFlight.current.clear();
+    toastIds.current.clear();
     setStates({});
   }, []);
 

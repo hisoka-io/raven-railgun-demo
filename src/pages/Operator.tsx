@@ -23,6 +23,7 @@ const HISTORY_LIMIT = 60;
 export function Operator() {
   const { status, state, lastEventAt, errorMessage } = useEventsStream();
   const [metrics, setMetrics] = useState<MetricsBundle | null>(null);
+  const [metricsError, setMetricsError] = useState<string | null>(null);
   const [streamOpenedAt, setStreamOpenedAt] = useState<number | null>(null);
   const [commitsHistory, setCommitsHistory] = useState<{ ts: number; total: number }[]>([]);
   const [now, setNow] = useState(() => Date.now());
@@ -51,22 +52,36 @@ export function Operator() {
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
+      if (typeof document !== "undefined" && document.hidden) return;
       try {
+        const ctl = new AbortController();
+        const to = window.setTimeout(() => ctl.abort(), 8_000);
         const res = await fetch(`${CONFIG.ravenUrl}/metrics`, {
           headers: { Authorization: `Bearer ${CONFIG.ravenBearer}` },
+          signal: ctl.signal,
         });
-        if (!res.ok) return;
+        window.clearTimeout(to);
+        if (!res.ok) {
+          if (!cancelled) setMetricsError(`/metrics ${res.status}`);
+          return;
+        }
         const text = await res.text();
         const parsed = parseMetrics(text);
-        if (!cancelled) setMetrics(parsed);
-      } catch {
+        if (cancelled) return;
+        setMetrics(parsed);
+        setMetricsError(null);
+      } catch (err) {
+        if (!cancelled) setMetricsError(err instanceof Error ? err.message : String(err));
       }
     };
     tick();
-    const id = setInterval(tick, 30_000);
+    const id = window.setInterval(tick, 30_000);
+    const onVis = () => { if (!document.hidden) tick(); };
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
     };
   }, []);
 
@@ -185,6 +200,11 @@ export function Operator() {
                 {status?.consumer ? formatNumber(status.consumer.last_applied_block) : "—"}
               </b>
             </span>
+            {metricsError && (
+              <span className="text-warning normal-case tracking-normal">
+                metrics: {metricsError}
+              </span>
+            )}
           </div>
         </div>
 

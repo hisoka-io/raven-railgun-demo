@@ -21,8 +21,12 @@ interface ParamsResponse {
   epoch: bigint;
 }
 
-let session: ClientSessionHandle | null = null;
-let lastBundle: { bundle: Uint8Array; params: ParamsResponse } | null = null;
+interface InstanceState {
+  session: ClientSessionHandle;
+  bundle: Uint8Array;
+  params: ParamsResponse;
+}
+const sessions = new Map<string, InstanceState>();
 let initialized = false;
 
 function formatHttpError(route: string, res: Response): string {
@@ -394,8 +398,7 @@ async function handleBoot(
   }
   const t3 = performance.now();
 
-  session = newSession;
-  lastBundle = { bundle, params };
+  sessions.set(instance, { session: newSession, bundle, params });
   postProgress(instance, "ready", { cacheHit, totalMs: t3 - t0 });
 
   return {
@@ -416,11 +419,14 @@ async function handleQuery(
   instance: string,
   targetIdx: number
 ): Promise<QueryResult> {
-  if (!session || !lastBundle) throw new Error("worker: boot before query");
+  const inst = sessions.get(instance);
+  if (!inst) throw new Error(`worker: boot ${instance} before query`);
+  const { session, bundle: _b, params } = inst;
+  void _b;
   const t0 = performance.now();
   const queryBundle = build_seeded_query(
     session,
-    lastBundle.params.shardConfigBincode,
+    params.shardConfigBincode,
     BigInt(targetIdx)
   );
   const queryBundleParsed = decodeQueryBundle(queryBundle);
@@ -449,10 +455,10 @@ async function handleQuery(
 
   const plaintext = extract_response(
     session,
-    lastBundle.params.crsBincode,
+    params.crsBincode,
     queryBundleParsed.clientStateBincode,
     inner,
-    Number(lastBundle.params.entrySize)
+    Number(params.entrySize)
   );
   const t3 = performance.now();
 

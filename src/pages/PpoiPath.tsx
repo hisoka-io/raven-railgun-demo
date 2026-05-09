@@ -9,6 +9,7 @@ import { useDebouncedCallback } from "@/lib/use-debounced-callback";
 import { BootIndicator } from "@/components/BootIndicator";
 
 const PPOI_PATH_INSTANCE = "ppoi-paths-ofac";
+const RAILGUN_ZERO_LEAF = "0488f89b25bc7011eaf6a5edce71aeafb9fe706faa3c0a5cd9cbe868ae3b9ffc";
 
 interface SiblingResult {
   index: number;
@@ -24,6 +25,7 @@ type State =
   | {
       kind: "ok";
       siblings: SiblingResult[];
+      pastFill: boolean;
       wallMs: number;
       totalUpBytes: number;
       totalDownBytes: number;
@@ -49,15 +51,14 @@ export function PpoiPath() {
   }
 
   async function runVerify() {
+    if (state.kind === "running") return;
     const wallStart = performance.now();
     setState({ kind: "running", done: 0 });
-    try {
-      const siblings: SiblingResult[] = [];
-      let totalUpBytes = 0;
-      let totalDownBytes = 0;
-      let done = 0;
-      const promises = Array.from({ length: 16 }, async (_, level) => {
-        const idx = siblingRowIndex(level, leafIndex);
+    const myLeaf = leafIndex;
+    const siblings: SiblingResult[] = [];
+    const settled = await Promise.allSettled(
+      Array.from({ length: 16 }, async (_, level) => {
+        const idx = siblingRowIndex(level, myLeaf);
         const t0 = performance.now();
         const r = await boot.query(PPOI_PATH_INSTANCE, idx);
         siblings[level] = {
@@ -67,22 +68,28 @@ export function PpoiPath() {
           upBytes: r.queryBytes,
           downBytes: r.responseBytes,
         };
-        totalUpBytes += r.queryBytes;
-        totalDownBytes += r.responseBytes;
-        done += 1;
-        setState({ kind: "running", done });
-      });
-      await Promise.all(promises);
-      setState({
-        kind: "ok",
-        siblings,
-        wallMs: performance.now() - wallStart,
-        totalUpBytes,
-        totalDownBytes,
-      });
-    } catch (err) {
-      setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+        setState((prev) =>
+          prev.kind === "running" ? { kind: "running", done: prev.done + 1 } : prev
+        );
+      })
+    );
+    const firstReject = settled.find((s) => s.status === "rejected") as PromiseRejectedResult | undefined;
+    if (firstReject) {
+      const reason = firstReject.reason;
+      setState({ kind: "error", message: reason instanceof Error ? reason.message : String(reason) });
+      return;
     }
+    const totalUpBytes = siblings.reduce((acc, s) => acc + s.upBytes, 0);
+    const totalDownBytes = siblings.reduce((acc, s) => acc + s.downBytes, 0);
+    const pastFill = siblings.every((s) => s.hex.toLowerCase().endsWith(RAILGUN_ZERO_LEAF));
+    setState({
+      kind: "ok",
+      siblings,
+      pastFill,
+      wallMs: performance.now() - wallStart,
+      totalUpBytes,
+      totalDownBytes,
+    });
   }
 
   const phase: StagePhase =
@@ -197,6 +204,12 @@ export function PpoiPath() {
                   </div>
                 </div>
               </div>
+              {state.pastFill && (
+                <div className="mt-6 border border-warning/40 bg-warning/5 p-4 text-[0.8rem] text-fg-secondary leading-relaxed max-w-[58ch]">
+                  <strong className="text-warning">All 16 siblings came back as the empty-leaf zero hash.</strong>{" "}
+                  This leaf is past the current PPOI list fill. Pick a smaller leaf index for real path data.
+                </div>
+              )}
               <div className="mt-10 grid grid-cols-2 md:grid-cols-4 gap-px bg-fg-faint border border-fg-faint">
                 <ResultStat label="time" value={formatLatency(state.wallMs)} />
                 <ResultStat label="bytes up" value={formatBytes(state.totalUpBytes)} />
@@ -273,6 +286,15 @@ export function PpoiPath() {
                         defaultOpen: true,
                         body: (
                           <div className="space-y-2">
+                            {state.pastFill && (
+                              <div className="border border-warning/40 bg-warning/5 p-3 text-[0.78rem] text-fg-secondary leading-relaxed">
+                                <strong className="text-warning">All 16 siblings came back as the empty-leaf zero hash.</strong>
+                                {" "}This leaf index is past the current OFAC PPOI list fill, so the
+                                PPOI table returned the per-level zero padding instead of real
+                                sibling data. Pick a smaller leaf index, or check the operator
+                                page to see how many entries the list has indexed so far.
+                              </div>
+                            )}
                             {state.siblings.map((s) => (
                               <div key={s.index} className="grid grid-cols-12 gap-2 items-center text-mono-xs">
                                 <span className="col-span-1 text-fg-muted">L{s.index}</span>
