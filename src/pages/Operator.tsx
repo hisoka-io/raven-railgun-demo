@@ -185,19 +185,19 @@ export function Operator() {
             <span>
               Stream open{" "}
               <b className="text-fg pl-2 font-medium">
-                {streamDurationSec !== null ? formatUptime(streamDurationSec) : "—"}
+                {streamDurationSec !== null ? formatUptime(streamDurationSec) : "-"}
               </b>
             </span>
             <span>
               Last event{" "}
               <b className="text-fg pl-2 font-medium">
-                {lastEventAgo !== null ? `${lastEventAgo}s ago` : "—"}
+                {lastEventAgo !== null ? `${lastEventAgo}s ago` : "-"}
               </b>
             </span>
             <span>
               Last block{" "}
               <b className="text-fg pl-2 font-medium">
-                {status?.consumer ? formatNumber(status.consumer.last_applied_block) : "—"}
+                {status?.consumer ? formatNumber(status.consumer.last_applied_block) : "-"}
               </b>
             </span>
             {metricsError && (
@@ -258,7 +258,7 @@ export function Operator() {
                   ? formatNumber(recentCommits)
                   : status.consumer
                     ? formatNumber(status.consumer.commits_fired)
-                    : "—"
+                    : "-"
               }
               spark={
                 commitsHistory.length > 1 ? commitsHistory.map((p) => p.total) : undefined
@@ -271,7 +271,7 @@ export function Operator() {
                   ? formatNumber(liveBlock.lastApplied)
                   : status.consumer
                     ? formatNumber(status.consumer.last_applied_block)
-                    : "—"
+                    : "-"
               }
               detail={
                 liveBlock
@@ -436,7 +436,7 @@ function LiveCard({
           value={
             metrics?.lastApplied !== undefined
               ? `#${formatNumber(metrics.lastApplied)}`
-              : "—"
+              : "-"
           }
           tone="muted"
         />
@@ -444,7 +444,7 @@ function LiveCard({
           label="Lag"
           value={
             metrics?.lag === undefined
-              ? "—"
+              ? "-"
               : metrics.lag === 0
                 ? "synced"
                 : `${formatNumber(metrics.lag)} blk`

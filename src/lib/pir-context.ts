@@ -38,6 +38,20 @@ export interface QueryResult {
   };
 }
 
+export interface BatchQueryResult {
+  rowsHex: string[];
+  buildQueryMs: number;
+  postMs: number;
+  extractMs: number;
+  totalMs: number;
+  queryBytes: number;
+  responseBytes: number;
+  freshness: string | null;
+  epoch: string | null;
+  request: { method: "POST"; url: string; bodyBytesLen: number };
+  response: { status: number; bodyBytesLen: number };
+}
+
 export interface BootProgress {
   type: "progress";
   instance: string;
@@ -144,6 +158,20 @@ export class PirContext {
       bearer: CONFIG.ravenBearer,
       instance: inst,
       targetIdx,
+    });
+  }
+
+  async batchQuery(targetIndices: number[], instance?: string): Promise<BatchQueryResult> {
+    const inst = instance ?? this.currentInstance ?? CONFIG.defaultInstance;
+    if (!this.bootP || this.currentInstance !== inst) {
+      await this.boot(inst);
+    }
+    return this.send<BatchQueryResult>({
+      type: "batch_query",
+      ravenUrl: CONFIG.ravenUrl,
+      bearer: CONFIG.ravenBearer,
+      instance: inst,
+      targetIndices,
     });
   }
 

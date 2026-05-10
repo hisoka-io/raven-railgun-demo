@@ -11,7 +11,6 @@ import { PerStageCard, type StagePhase } from "@/components/PerStageCard";
 import { HexBlock } from "@/components/HexBlock";
 import { useDebouncedCallback } from "@/lib/use-debounced-callback";
 import { BootIndicator } from "@/components/BootIndicator";
-import type { QueryResult } from "@/lib/pir-context";
 import { CONFIG } from "@/lib/config";
 
 interface SiblingResult {
@@ -84,8 +83,7 @@ export function CommitTreePath() {
   const leafOutOfRange = maxLeafIndex !== null && leafIndex > maxLeafIndex;
 
   const indexerStatus = useIndexerStatus(chosenInstance);
-  const indexerStale = treeNumber === CHAIN.liveTreeIndex
-    && (indexerStatus?.lag ?? 0) > 200;
+  const indexerStale = false;
 
   const stagePhases = useMemo<{
     pir: StagePhase;
@@ -152,35 +150,43 @@ export function CommitTreePath() {
     const siblings: SiblingResult[] = [];
     let totalUpBytes = 0;
     let totalDownBytes = 0;
-    let done = 0;
-    const settled = await Promise.allSettled(
-      rows.map(async (idx, slot) => {
-        const t0 = performance.now();
-        const result: QueryResult = await boot.query(myInstance, idx);
-        const postMs = performance.now() - t0;
-        recoveredHex[slot] = `0x${result.recoveredHex}`;
-        totalUpBytes += result.queryBytes;
-        totalDownBytes += result.responseBytes;
-        if (slot >= 1) {
-          siblings[slot - 1] = {
-            index: slot - 1,
-            hex: `0x${result.recoveredHex}`,
-            postMs,
-            upBytes: result.queryBytes,
-            downBytes: result.responseBytes,
-          };
-        }
-        done += 1;
-        if (!cancelled()) safeSet({ kind: "running", phase: "pir", progress: done });
-      })
-    );
-    if (cancelled()) return;
-    const firstReject = settled.find((s) => s.status === "rejected") as PromiseRejectedResult | undefined;
-    if (firstReject) {
-      const reason = firstReject.reason;
-      safeSet({ kind: "error", message: reason instanceof Error ? reason.message : String(reason) });
+    // Single /batch call: all 17 rows are served from the SAME server-side
+    // (epoch, state) snapshot, so the folded merkle path is internally
+    // consistent — no Frankenstein fold across a chain-event apply.
+    let batchResult;
+    try {
+      batchResult = await boot.batchQuery(myInstance, rows);
+    } catch (err) {
+      safeSet({ kind: "error", message: err instanceof Error ? err.message : String(err) });
       return;
     }
+    if (cancelled()) return;
+    if (batchResult.rowsHex.length !== rows.length) {
+      safeSet({
+        kind: "error",
+        message: `batch returned ${batchResult.rowsHex.length} rows; expected ${rows.length}`,
+      });
+      return;
+    }
+    totalUpBytes = batchResult.queryBytes;
+    totalDownBytes = batchResult.responseBytes;
+    // Approx per-row time (single round-trip; charge equally).
+    const perRowMs = batchResult.postMs / rows.length;
+    const perRowUp = Math.floor(batchResult.queryBytes / rows.length);
+    const perRowDown = Math.floor(batchResult.responseBytes / rows.length);
+    for (let slot = 0; slot < rows.length; slot += 1) {
+      recoveredHex[slot] = `0x${batchResult.rowsHex[slot]}`;
+      if (slot >= 1) {
+        siblings[slot - 1] = {
+          index: slot - 1,
+          hex: `0x${batchResult.rowsHex[slot]}`,
+          postMs: perRowMs,
+          upBytes: perRowUp,
+          downBytes: perRowDown,
+        };
+      }
+    }
+    if (!cancelled()) safeSet({ kind: "running", phase: "pir", progress: rows.length });
 
     safeSet({ kind: "running", phase: "fold" });
     let foldedRoot = "";
@@ -244,7 +250,7 @@ export function CommitTreePath() {
           </p>
         </div>
 
-        {/* Step 01 — Pick */}
+        {/* Step 01 - Pick */}
         <Step num="01" kicker="Pick a leaf">
           <div className="mt-8 flex flex-col sm:flex-row gap-3 items-start sm:items-end">
             <Field label="tree">
@@ -294,7 +300,7 @@ export function CommitTreePath() {
           </div>
         </Step>
 
-        {/* Step 02 — What changes */}
+        {/* Step 02 - What changes */}
         <Step num="02" kicker="What changes">
           <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-px bg-fg-faint border border-fg-faint">
             <div className="bg-bg p-8 sm:p-10 border-l-2 border-public">
@@ -321,7 +327,7 @@ export function CommitTreePath() {
           </div>
         </Step>
 
-        {/* Step 03 — Result */}
+        {/* Step 03 - Result */}
         <Step num="03" kicker="Result">
           {state.kind === "done" ? (
             <div className="mt-8 rr-fade-in">
@@ -391,14 +397,18 @@ export function CommitTreePath() {
 
             {indexerStatus && indexerStatus.lastApplied !== null && indexerStatus.chainHead !== null && (
               <div className="border border-fg-faint bg-bg-secondary px-4 py-2.5 text-[0.7rem] font-mono text-fg-secondary">
-                <span className="uppercase tracking-[0.14em] text-fg-muted text-[0.6rem] mr-3">
-                  {chosenInstance} indexer
-                </span>
-                applied <span className="text-fg">{formatNumber(indexerStatus.lastApplied)}</span>
-                {" · "}head <span className="text-fg">{formatNumber(indexerStatus.chainHead)}</span>
-                {" · "}lag <span className="text-fg">{formatNumber(indexerStatus.lag ?? Math.max(0, indexerStatus.chainHead - indexerStatus.lastApplied))}</span> blk
-                {indexerStale && (
-                  <span className="ml-3 text-warning">stale · pick a static tree</span>
+                <div>
+                  <span className="uppercase tracking-[0.14em] text-fg-muted text-[0.6rem] mr-3">
+                    {chosenInstance} indexer
+                  </span>
+                  chain head <span className="text-fg">{formatNumber(indexerStatus.chainHead)}</span>
+                  {" · "}last leaf event applied at block <span className="text-fg">{formatNumber(indexerStatus.lastApplied)}</span>
+                  {" · "}<span className="text-fg">{formatNumber(indexerStatus.lag ?? Math.max(0, indexerStatus.chainHead - indexerStatus.lastApplied))}</span> blocks since last event
+                </div>
+                {treeNumber === CHAIN.liveTreeIndex && (
+                  <div className="mt-1 text-fg-muted text-[0.65rem]">
+                    chain head advances live via WS subscribe; "blocks since last event" reflects sparse leaf inserts and is not indexer staleness
+                  </div>
                 )}
               </div>
             )}
@@ -447,7 +457,7 @@ export function CommitTreePath() {
                 extract={
                   state.kind === "done"
                     ? {
-                        label: `Client (extract) — ${state.siblings.length} of 16 sibling hashes recovered`,
+                        label: `Client (extract) - ${state.siblings.length} of 16 sibling hashes recovered`,
                         body: (
                           <div className="space-y-2">
                             {state.siblings.map((s) => (
@@ -559,7 +569,7 @@ export function CommitTreePath() {
                         defaultOpen: true,
                         body: state.onChain ? (
                           <div className="text-success text-[0.85rem]">
-                            Mainnet agrees — folded root is in `rootHistory` for tree {treeNumber}.
+                            Mainnet agrees - folded root is in `rootHistory` for tree {treeNumber}.
                           </div>
                         ) : (
                           <div className="text-warning text-[0.85rem]">

@@ -12,6 +12,7 @@ import {
   getPirContext,
   type ColdResult,
   type QueryResult,
+  type BatchQueryResult,
   type BootProgress,
 } from "@/lib/pir-context";
 import { useToast } from "@/components/ui/Toast";
@@ -61,6 +62,7 @@ interface BootApi {
   states: Record<string, InstanceBootState>;
   ensureBooted(instance: string): Promise<ColdResult>;
   query(instance: string, targetIdx: number): Promise<QueryResult>;
+  batchQuery(instance: string, targetIndices: number[]): Promise<BatchQueryResult>;
   evictCache(): Promise<void>;
   expectedFingerprint(instance: string): string | null;
   isReady(instance: string): boolean;
@@ -244,6 +246,16 @@ export function BootProvider({ children }: { children: ReactNode }) {
     [ensureBooted]
   );
 
+  const batchQuery = useCallback(
+    async (instance: string, targetIndices: number[]): Promise<BatchQueryResult> => {
+      if (!ready.current.has(instance)) {
+        await ensureBooted(instance);
+      }
+      return getPirContext().batchQuery(targetIndices, instance);
+    },
+    [ensureBooted]
+  );
+
   const evictCache = useCallback(async () => {
     await getPirContext().evictCache();
     ready.current.clear();
@@ -274,12 +286,13 @@ export function BootProvider({ children }: { children: ReactNode }) {
       states,
       ensureBooted,
       query,
+      batchQuery,
       evictCache,
       expectedFingerprint,
       isReady,
       progressFraction,
     }),
-    [states, ensureBooted, query, evictCache, expectedFingerprint, isReady, progressFraction]
+    [states, ensureBooted, query, batchQuery, evictCache, expectedFingerprint, isReady, progressFraction]
   );
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>;

@@ -129,7 +129,7 @@ export function PpoiStatus() {
           </p>
         </div>
 
-        {/* Step 01 — Paste */}
+        {/* Step 01 - Paste */}
         <Step num="01" kicker="Paste an address">
           <div className="mt-8 flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
             <div className="flex-1 max-w-2xl flex flex-col gap-1.5">
@@ -164,7 +164,7 @@ export function PpoiStatus() {
           </div>
         </Step>
 
-        {/* Step 02 — What changes */}
+        {/* Step 02 - What changes */}
         <Step num="02" kicker="What changes">
           <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-px bg-fg-faint border border-fg-faint">
             <div className="bg-bg p-8 sm:p-10 border-l-2 border-public">
@@ -190,7 +190,7 @@ export function PpoiStatus() {
           </div>
         </Step>
 
-        {/* Step 03 — Result */}
+        {/* Step 03 - Result */}
         <Step num="03" kicker="Result">
           {lookup.kind === "error" ? (
             <div className="mt-8 border border-error/40 bg-error/5 p-5 text-[0.85rem] text-fg-secondary">

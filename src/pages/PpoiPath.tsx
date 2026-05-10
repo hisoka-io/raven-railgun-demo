@@ -56,31 +56,38 @@ export function PpoiPath() {
     setState({ kind: "running", done: 0 });
     const myLeaf = leafIndex;
     const siblings: SiblingResult[] = [];
-    const settled = await Promise.allSettled(
-      Array.from({ length: 16 }, async (_, level) => {
-        const idx = siblingRowIndex(level, myLeaf);
-        const t0 = performance.now();
-        const r = await boot.query(PPOI_PATH_INSTANCE, idx);
-        siblings[level] = {
-          index: level,
-          hex: `0x${r.recoveredHex}`,
-          postMs: performance.now() - t0,
-          upBytes: r.queryBytes,
-          downBytes: r.responseBytes,
-        };
-        setState((prev) =>
-          prev.kind === "running" ? { kind: "running", done: prev.done + 1 } : prev
-        );
-      })
-    );
-    const firstReject = settled.find((s) => s.status === "rejected") as PromiseRejectedResult | undefined;
-    if (firstReject) {
-      const reason = firstReject.reason;
-      setState({ kind: "error", message: reason instanceof Error ? reason.message : String(reason) });
+    const rows = Array.from({ length: 16 }, (_, level) => siblingRowIndex(level, myLeaf));
+    let batchResult;
+    try {
+      batchResult = await boot.batchQuery(PPOI_PATH_INSTANCE, rows);
+    } catch (err) {
+      setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
       return;
     }
-    const totalUpBytes = siblings.reduce((acc, s) => acc + s.upBytes, 0);
-    const totalDownBytes = siblings.reduce((acc, s) => acc + s.downBytes, 0);
+    if (batchResult.rowsHex.length !== rows.length) {
+      setState({
+        kind: "error",
+        message: `batch returned ${batchResult.rowsHex.length} rows; expected ${rows.length}`,
+      });
+      return;
+    }
+    const perRowMs = batchResult.postMs / rows.length;
+    const perRowUp = Math.floor(batchResult.queryBytes / rows.length);
+    const perRowDown = Math.floor(batchResult.responseBytes / rows.length);
+    for (let level = 0; level < rows.length; level += 1) {
+      siblings[level] = {
+        index: level,
+        hex: `0x${batchResult.rowsHex[level]}`,
+        postMs: perRowMs,
+        upBytes: perRowUp,
+        downBytes: perRowDown,
+      };
+    }
+    setState((prev) =>
+      prev.kind === "running" ? { kind: "running", done: rows.length } : prev
+    );
+    const totalUpBytes = batchResult.queryBytes;
+    const totalDownBytes = batchResult.responseBytes;
     const pastFill = siblings.every((s) => s.hex.toLowerCase().endsWith(RAILGUN_ZERO_LEAF));
     setState({
       kind: "ok",
@@ -121,7 +128,7 @@ export function PpoiPath() {
           </p>
         </div>
 
-        {/* Step 01 — Pick */}
+        {/* Step 01 - Pick */}
         <Step num="01" kicker="Pick a leaf">
           <div className="mt-8 flex flex-col sm:flex-row gap-3 items-start sm:items-end">
             <div className="flex flex-col gap-1.5">
@@ -158,7 +165,7 @@ export function PpoiPath() {
           </div>
         </Step>
 
-        {/* Step 02 — What changes */}
+        {/* Step 02 - What changes */}
         <Step num="02" kicker="What changes">
           <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-px bg-fg-faint border border-fg-faint">
             <div className="bg-bg p-8 sm:p-10 border-l-2 border-public">
@@ -183,7 +190,7 @@ export function PpoiPath() {
           </div>
         </Step>
 
-        {/* Step 03 — Result */}
+        {/* Step 03 - Result */}
         <Step num="03" kicker="Result">
           {state.kind === "error" ? (
             <div className="mt-8 border border-error/40 bg-error/5 p-5 text-[0.85rem] text-fg-secondary">

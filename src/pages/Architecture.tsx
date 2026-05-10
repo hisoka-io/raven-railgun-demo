@@ -17,8 +17,8 @@ const DATA: Record<NodeKey, NodeData> = {
     name: "Wallet",
     desc: "Any Railgun client",
     eyebrow: "Selected · client",
-    role: "Any Railgun client. The wallet stays unmodified — no API surface change, no new dependencies in your app.",
-    solves: ["Nothing on its own — privacy comes from the layers below."],
+    role: "Any Railgun client. The wallet stays unmodified - no API surface change, no new dependencies in your app.",
+    solves: ["Nothing on its own - privacy comes from the layers below."],
     skips: ["Without Raven and NOX, every read leaks who is asking what."],
   },
   sdk: {
@@ -30,7 +30,7 @@ const DATA: Record<NodeKey, NodeData> = {
       "Encrypts queries before they leave the client.",
       "Folds Merkle proofs locally.",
     ],
-    skips: ["Cannot hide your IP — that's NOX's job."],
+    skips: ["Cannot hide your IP - that's NOX's job."],
   },
   raven: {
     name: "raven.hisoka.io",
@@ -43,20 +43,20 @@ const DATA: Record<NodeKey, NodeData> = {
       "Local IMT requirement on commit-tree auth-path lookup.",
     ],
     skips: [
-      "Submission-side leaks &mdash; <code>submitTransactProof</code> still carries <code>blindedCommitmentsOut[]</code>. NOX covers this.",
-      "Subsquid public-side data &mdash; that is, by design, public.",
+      "Submission-side leaks - <code>submitTransactProof</code> still carries <code>blindedCommitmentsOut[]</code>. NOX covers this.",
+      "Subsquid public-side data - that is, by design, public.",
     ],
   },
   nox: {
     name: "NOX",
     desc: "transport layer · sphinx mixnet",
     eyebrow: "Selected · transport layer",
-    role: "A separate strict layer. Sphinx mixnet for transport-layer privacy — hides who is talking to whom.",
+    role: "A separate strict layer. Sphinx mixnet for transport-layer privacy - hides who is talking to whom.",
     solves: [
       "Submission-side metadata leaks at the network layer.",
       "Operator IP correlation across requests.",
     ],
-    skips: ["What you read — that's Raven's job."],
+    skips: ["What you read - that's Raven's job."],
   },
   mainnet: {
     name: "Ethereum mainnet",

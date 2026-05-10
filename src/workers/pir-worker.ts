@@ -231,6 +231,26 @@ export interface QueryResult {
   };
 }
 
+export interface BatchQueryResult {
+  // Per-row recovered hex, indexed in the same order as the input
+  // `targetIndices`. All rows are guaranteed to come from the same
+  // server-side `(epoch, state)` snapshot, so a folded merkle path is
+  // self-consistent and the resulting root corresponds to a state
+  // chain.rootHistory recognises (assuming the snapshot itself is
+  // chain-anchored, which is the consumer's invariant).
+  rowsHex: string[];
+  buildQueryMs: number;
+  postMs: number;
+  extractMs: number;
+  totalMs: number;
+  queryBytes: number;
+  responseBytes: number;
+  freshness: string | null;
+  epoch: string | null;
+  request: { method: "POST"; url: string; bodyBytesLen: number };
+  response: { status: number; bodyBytesLen: number };
+}
+
 type Inbound =
   | { type: "ping"; id: number }
   | {
@@ -247,6 +267,14 @@ type Inbound =
       bearer: string;
       instance: string;
       targetIdx: number;
+    }
+  | {
+      type: "batch_query";
+      id: number;
+      ravenUrl: string;
+      bearer: string;
+      instance: string;
+      targetIndices: number[];
     }
   | { type: "evictCache"; id: number };
 
@@ -268,6 +296,16 @@ self.onmessage = async (ev: MessageEvent<Inbound>) => {
         msg.bearer,
         msg.instance,
         msg.targetIdx
+      );
+      (self as unknown as Worker).postMessage({ id: msg.id, ok: true, result });
+      return;
+    }
+    if (msg.type === "batch_query") {
+      const result = await handleBatchQuery(
+        msg.ravenUrl,
+        msg.bearer,
+        msg.instance,
+        msg.targetIndices
       );
       (self as unknown as Worker).postMessage({ id: msg.id, ok: true, result });
       return;
@@ -485,6 +523,112 @@ async function handleQuery(
       bodyBytesPreviewHex: bytesToHexLocal(respPreview),
       bodyBytesLen: inner.length,
     },
+  };
+}
+
+async function handleBatchQuery(
+  ravenUrl: string,
+  bearer: string,
+  instance: string,
+  targetIndices: number[]
+): Promise<BatchQueryResult> {
+  const inst = sessions.get(instance);
+  if (!inst) throw new Error(`worker: boot ${instance} before batch_query`);
+  const { session, params } = inst;
+  if (targetIndices.length === 0) throw new Error("batch_query: empty indices");
+
+  const t0 = performance.now();
+  const queryBytesArray: Uint8Array[] = [];
+  const clientStates: Uint8Array[] = [];
+  for (const idx of targetIndices) {
+    const queryBundle = build_seeded_query(
+      session,
+      params.shardConfigBincode,
+      BigInt(idx)
+    );
+    const parsed = decodeQueryBundle(queryBundle);
+    queryBytesArray.push(parsed.queryBytes);
+    clientStates.push(parsed.clientStateBincode);
+  }
+  const t1 = performance.now();
+
+  // Wire format: [u16 BE schema=1][bincode<Vec<Query>>]
+  // bincode<Vec<Q>> = [u64 LE count][concat bincode<Q>]
+  let bodyLen = 8;
+  for (const q of queryBytesArray) bodyLen += q.length;
+  const wire = new Uint8Array(2 + bodyLen);
+  wire[0] = 0;
+  wire[1] = 1;
+  const view = new DataView(wire.buffer, wire.byteOffset + 2, 8);
+  view.setBigUint64(0, BigInt(queryBytesArray.length), true);
+  let off = 2 + 8;
+  for (const q of queryBytesArray) {
+    wire.set(q, off);
+    off += q.length;
+  }
+
+  const url = `${ravenUrl}/v1/instance/${encodeURIComponent(instance)}/batch`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/octet-stream",
+      Authorization: `Bearer ${bearer}`,
+    },
+    body: wire,
+  });
+  const respBytes = new Uint8Array(await res.arrayBuffer());
+  if (!res.ok) throw new Error(formatHttpError("/batch", res));
+  // Response wire: [u16 BE schema][u64 LE count][per-elem: u64 LE len][bincode<R>]
+  if (respBytes.length < 10 || ((respBytes[0] << 8) | respBytes[1]) !== 1)
+    throw new Error("bad batch response envelope");
+  const respView = new DataView(
+    respBytes.buffer,
+    respBytes.byteOffset + 2,
+    respBytes.byteLength - 2
+  );
+  const count = Number(respView.getBigUint64(0, true));
+  if (count !== queryBytesArray.length)
+    throw new Error(`batch response count ${count} != expected ${queryBytesArray.length}`);
+  let cursor = 2 + 8;
+  const rowResponses: Uint8Array[] = [];
+  for (let i = 0; i < count; i += 1) {
+    if (cursor + 8 > respBytes.length) throw new Error("truncated batch len");
+    const lenView = new DataView(respBytes.buffer, respBytes.byteOffset + cursor);
+    const elemLen = Number(lenView.getBigUint64(0, true));
+    cursor += 8;
+    if (cursor + elemLen > respBytes.length) throw new Error("truncated batch body");
+    rowResponses.push(respBytes.subarray(cursor, cursor + elemLen));
+    cursor += elemLen;
+  }
+  const freshness = res.headers.get("x-raven-freshness");
+  const epoch = res.headers.get("x-raven-epoch");
+  const t2 = performance.now();
+
+  const rowsHex: string[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const plaintext = extract_response(
+      session,
+      params.crsBincode,
+      clientStates[i],
+      rowResponses[i],
+      Number(params.entrySize)
+    );
+    rowsHex.push(bytesToHexLocal(plaintext.subarray(0, 32)));
+  }
+  const t3 = performance.now();
+
+  return {
+    rowsHex,
+    buildQueryMs: t1 - t0,
+    postMs: t2 - t1,
+    extractMs: t3 - t2,
+    totalMs: t3 - t0,
+    queryBytes: wire.length,
+    responseBytes: respBytes.length - 2,
+    freshness,
+    epoch,
+    request: { method: "POST", url, bodyBytesLen: wire.length },
+    response: { status: res.status, bodyBytesLen: respBytes.length },
   };
 }
 
