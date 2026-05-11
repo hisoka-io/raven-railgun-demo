@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowRight, Check, ExternalLink } from "lucide-react";
+import { ArrowRight, Check, ExternalLink, Loader2 } from "lucide-react";
 import { useBoot } from "@/lib/boot-context";
 import { fetchShieldsByEoa, type ShieldEvent } from "@/lib/subsquid-client";
 import { CONFIG } from "@/lib/config";
@@ -8,7 +8,6 @@ import { formatBytes, formatLatency, formatNumber, shortHex } from "@/lib/format
 import { PerStageCard, type StagePhase } from "@/components/PerStageCard";
 import { HexBlock } from "@/components/HexBlock";
 import { AccordionRoot, AccordionItem } from "@/components/ui/Accordion";
-import { useDebouncedCallback } from "@/lib/use-debounced-callback";
 import { BootIndicator } from "@/components/BootIndicator";
 
 const SAMPLE_ADDRESS = "0x48c2cc7e4a45202753befa8911cf2253a5d165b3";
@@ -42,28 +41,40 @@ type PirState =
     }
   | { kind: "error"; message: string };
 
+type RunningPhase = "starting" | "scanning" | "querying";
+const PHASE_LABEL: Record<RunningPhase, string> = {
+  starting: "Starting",
+  scanning: "Scanning Subsquid for shields",
+  querying: "Running PIR query",
+};
+const PHASE_FRACTION: Record<RunningPhase, number> = {
+  starting: 0.05,
+  scanning: 0.55,
+  querying: 0.9,
+};
+
 export function PpoiStatus() {
   const boot = useBoot();
   const [input, setInput] = useState(SAMPLE_ADDRESS);
   const [lookup, setLookup] = useState<LookupState>({ kind: "idle" });
   const [pir, setPir] = useState<PirState>({ kind: "idle" });
+  const [starting, setStarting] = useState(false);
 
   useEffect(() => {
     boot.ensureBooted(PPOI_INSTANCE).catch(() => undefined);
   }, [boot]);
 
-  const debouncedRun = useDebouncedCallback((addr: string) => {
-    runFlow(addr);
-  }, 1_500);
-
   async function runFlow(addr: string) {
+    setStarting(true);
+    setPir({ kind: "idle" });
     if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) {
+      setStarting(false);
       setLookup({ kind: "error", address: addr, message: "not a valid 0x... EOA (need exactly 20 bytes hex)" });
       return;
     }
     setLookup({ kind: "loading", address: addr });
-    setPir({ kind: "idle" });
     const r = await fetchShieldsByEoa(CONFIG.ethRpcUrl, addr, 200);
+    setStarting(false);
     if (!r.ok) {
       setLookup({ kind: "error", address: addr, message: r.error });
       return;
@@ -107,33 +118,48 @@ export function PpoiStatus() {
   }
 
   const pirPhase: StagePhase = pir.kind === "running" ? "running" : pir.kind === "ok" ? "done" : pir.kind === "error" ? "error" : "idle";
-  const busy = lookup.kind === "loading" || pir.kind === "running";
+  const busy = starting || lookup.kind === "loading" || pir.kind === "running";
+
+  const runningPhase: RunningPhase | null = starting
+    ? "starting"
+    : lookup.kind === "loading"
+    ? "scanning"
+    : pir.kind === "running"
+    ? "querying"
+    : null;
+  const runningFraction = runningPhase ? PHASE_FRACTION[runningPhase] : 0;
+  const runningLabel = runningPhase ? PHASE_LABEL[runningPhase] : null;
 
   return (
     <section className="bg-bg">
       <FadeStyle />
       <div className="max-w-[1280px] mx-auto px-6 sm:px-10 lg:px-14">
-        {/* Hero */}
-        <div className="pt-20 sm:pt-28 pb-16">
-          <p className="text-[0.72rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
+        {/* Hero  -  tight one-screen description */}
+        <div className="pt-14 sm:pt-20 pb-10">
+          <p className="text-[0.7rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
             Demo · PPOI status
           </p>
-          <h1 className="mt-5 font-serif text-5xl sm:text-6xl lg:text-[5.5rem] leading-[0.98] tracking-tight max-w-[18ch] font-normal">
-            Close the
-            <br />
-            address leak.
+          <h1 className="mt-4 font-serif text-4xl sm:text-5xl lg:text-[3.75rem] leading-[1.02] tracking-tight max-w-[20ch] font-normal">
+            Close the address leak.
           </h1>
-          <p className="mt-7 text-fg-secondary text-lg leading-relaxed max-w-[58ch]">
-            Stop POSTing your blinded commitments to the PPOI server. Replace
-            with a private retrieval against the same status table.
+          <p className="mt-6 text-fg-secondary text-[1.02rem] leading-relaxed max-w-[68ch]">
+            Every balance refresh, stock Railgun wallets POST their full
+            blinded-commitment list to the PPOI server. One HTTP request reveals
+            which UTXOs the wallet owns, clustered by IP. For shield-derived
+            commitments, the cluster ties back to a real Ethereum address.
+          </p>
+          <p className="mt-3 text-fg-secondary text-[1.02rem] leading-relaxed max-w-[68ch]">
+            With PIR substitution, the wallet looks up its row index locally and
+            pulls the row encrypted against the same status table. The operator
+            holds the bearer token but never learns which row was requested.
           </p>
         </div>
 
-        {/* Step 01 - Paste */}
+        {/* Step 01 - Paste  -  aligned controls, immediate loader on click */}
         <Step num="01" kicker="Paste an address">
-          <div className="mt-8 flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
-            <div className="flex-1 max-w-2xl flex flex-col gap-1.5">
-              <span className="text-[0.72rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
+          <div className="mt-8 flex flex-wrap items-end gap-4">
+            <div className="flex flex-col gap-1.5 flex-1 min-w-[18rem] max-w-[36rem]">
+              <span className="text-[0.7rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
                 ethereum address
               </span>
               <input
@@ -141,57 +167,38 @@ export function PpoiStatus() {
                 onChange={(e) => setInput(e.target.value.trim())}
                 spellCheck={false}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && input) debouncedRun(input);
+                  if (e.key === "Enter" && input && !busy) runFlow(input);
                 }}
                 disabled={busy}
-                className="bg-bg-secondary border border-fg-faint px-3 py-2.5 font-mono text-[0.85rem] text-fg outline-none focus:border-accent"
+                className="h-11 bg-bg-secondary border border-fg-faint px-3 font-mono text-[0.85rem] text-fg outline-none focus:border-accent disabled:opacity-50"
               />
             </div>
             <button
-              onClick={() => debouncedRun(input || SAMPLE_ADDRESS)}
+              onClick={() => runFlow(input || SAMPLE_ADDRESS)}
               disabled={busy || !boot.isReady(PPOI_INSTANCE)}
-              className="inline-flex items-center gap-2.5 bg-fg text-bg border border-fg text-[0.78rem] font-semibold uppercase tracking-[0.08em] px-5 py-3.5 hover:bg-transparent hover:text-fg transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-fg disabled:hover:text-bg"
+              className="h-11 inline-flex items-center gap-2.5 bg-fg text-bg border border-fg text-[0.78rem] font-semibold uppercase tracking-[0.08em] px-5 hover:bg-transparent hover:text-fg transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-fg disabled:hover:text-bg"
             >
               {!boot.isReady(PPOI_INSTANCE)
                 ? "Preparing keys"
-                : lookup.kind === "loading"
-                ? "Scanning"
-                : pir.kind === "running"
-                ? "Running PIR"
+                : runningPhase
+                ? PHASE_LABEL[runningPhase]
                 : "Run demo"}
-              <ArrowRight size={13} />
+              {busy ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <ArrowRight size={13} />
+              )}
             </button>
+            {busy && (
+              <span className="text-[0.7rem] font-mono text-fg-muted self-center">
+                {shortHex(input || SAMPLE_ADDRESS, 6, 4)}
+              </span>
+            )}
           </div>
         </Step>
 
-        {/* Step 02 - What changes */}
-        <Step num="02" kicker="What changes">
-          <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-px bg-fg-faint border border-fg-faint">
-            <div className="bg-bg p-8 sm:p-10 border-l-2 border-public">
-              <span className="text-[0.72rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
-                Stock wallet
-              </span>
-              <p className="mt-5 text-fg-secondary leading-relaxed">
-                Every refresh POSTs the wallet&apos;s full blinded-commitment list to
-                the PPOI server. The server clusters by IP and ties shield-derived
-                BCs back to the on-chain depositor address.
-              </p>
-            </div>
-            <div className="bg-bg p-8 sm:p-10 border-l-2 border-accent">
-              <span className="text-[0.72rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
-                Raven
-              </span>
-              <p className="mt-5 text-fg-secondary leading-relaxed">
-                The wallet looks up its row index locally, then PIR-queries that
-                row. The operator holds the bearer but never sees which row was
-                requested.
-              </p>
-            </div>
-          </div>
-        </Step>
-
-        {/* Step 03 - Result */}
-        <Step num="03" kicker="Result">
+        {/* Step 02 - Result  -  phase-aware running state */}
+        <Step num="02" kicker="Result">
           {lookup.kind === "error" ? (
             <div className="mt-8 border border-error/40 bg-error/5 p-5 text-[0.85rem] text-fg-secondary">
               <strong className="text-error">lookup failed</strong> · {lookup.message}
@@ -222,38 +229,64 @@ export function PpoiStatus() {
                 <ResultStat label="operator learned" value="nothing" tone="accent" />
               </div>
             </div>
+          ) : runningPhase ? (
+            <div className="mt-8 rr-fade-in flex items-start gap-5">
+              <span className="inline-flex w-10 h-10 items-center justify-center border border-accent/40 bg-accent/5 shrink-0 mt-1">
+                <Loader2 size={18} className="text-accent animate-spin" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-[0.72rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
+                  {runningLabel}
+                </div>
+                <div className="mt-3 h-1 w-full bg-fg-faint relative overflow-hidden">
+                  <div
+                    className="h-full bg-accent transition-all duration-300"
+                    style={{ width: `${Math.round(runningFraction * 100)}%` }}
+                  />
+                </div>
+                <p className="mt-3 text-[0.78rem] text-fg-muted leading-relaxed">
+                  {runningPhase === "scanning"
+                    ? "Reading recent Shield events from the public Subsquid indexer so we can show what an attacker would see clustering this address."
+                    : runningPhase === "querying"
+                    ? "One encrypted PIR query is in flight against " + PPOI_INSTANCE + ". Open DevTools and watch the POST body  -  opaque ciphertext, no row index."
+                    : "Click queued. Starting now..."}
+                </p>
+              </div>
+            </div>
           ) : (
             <p className="mt-8 text-fg-muted">Run step 01 to populate.</p>
           )}
         </Step>
 
-        {/* Single technical-details disclosure */}
+        {/* Technical-details disclosure  -  mini progress strip when running + collapsed */}
         <details className="mb-24 border border-fg-faint bg-bg-secondary group">
-          <summary className="cursor-pointer list-none flex items-center gap-5 px-6 sm:px-8 py-6 hover:bg-bg-hover transition-colors">
-            <span className="inline-flex w-9 h-9 items-center justify-center border border-accent/50 text-accent font-mono text-lg shrink-0 group-open:rotate-45 transition-transform">
-              +
-            </span>
-            <div className="flex flex-col gap-1 flex-1 min-w-0">
-              <span className="text-[0.78rem] uppercase tracking-[0.22em] text-fg font-mono font-medium">
-                Show technical details
+          <summary className="cursor-pointer list-none px-6 sm:px-8 py-6 hover:bg-bg-hover transition-colors">
+            <div className="flex items-center gap-5">
+              <span className="inline-flex w-9 h-9 items-center justify-center border border-accent/50 text-accent font-mono text-lg shrink-0 group-open:rotate-45 transition-transform">
+                +
               </span>
-              <span className="text-[0.78rem] text-fg-secondary">
-                Cluster view · per-stage card · FAQ with citations
-              </span>
+              <div className="flex flex-col gap-1 flex-1 min-w-0">
+                <span className="text-[0.78rem] uppercase tracking-[0.22em] text-fg font-mono font-medium">
+                  {busy ? "Live  -  " + (runningLabel ?? "running") : "Show technical details"}
+                </span>
+                <span className="text-[0.78rem] text-fg-secondary">
+                  Cluster view · per-stage card · FAQ with citations
+                </span>
+              </div>
+              {busy && (
+                <Loader2 size={16} className="text-accent shrink-0 animate-spin group-open:hidden" />
+              )}
             </div>
+            {busy && (
+              <div className="mt-4 h-[2px] w-full bg-fg-faint relative overflow-hidden group-open:hidden">
+                <div
+                  className="h-full bg-accent transition-all duration-300"
+                  style={{ width: `${Math.round(runningFraction * 100)}%` }}
+                />
+              </div>
+            )}
           </summary>
           <div className="px-6 sm:px-8 pt-8 pb-10 space-y-8 border-t border-fg-faint">
-            <div className="text-fg-secondary leading-relaxed max-w-[72ch]">
-              <p>
-                Every balance refresh, the stock Railgun wallet POSTs the full list of blinded
-                commitments it owns to the PPOI server. The server clusters those commitments by
-                source IP and learns the wallet&apos;s UTXO set. For shield-derived commitments,
-                the server can also tie the cluster back to the on-chain depositor address. Raven
-                substitutes the per-IP POST with private retrieval against the same status table
-                held by <code className="font-mono text-[0.85rem]">{PPOI_INSTANCE}</code>.
-              </p>
-            </div>
-
             <BootIndicator primaryInstance={PPOI_INSTANCE} />
 
             {lookup.kind === "ok" && (

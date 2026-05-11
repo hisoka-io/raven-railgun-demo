@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
-import { ArrowRight, Check } from "lucide-react";
+import { ArrowRight, Check, Loader2 } from "lucide-react";
 import { useBoot } from "@/lib/boot-context";
 import { CHAIN, PIR_BENCH, PIR_TABLES } from "@/lib/numbers";
 import { formatBytes, formatLatency, formatNumber } from "@/lib/format";
 import { PerStageCard, type StagePhase } from "@/components/PerStageCard";
 import { HexBlock } from "@/components/HexBlock";
-import { useDebouncedCallback } from "@/lib/use-debounced-callback";
 import { BootIndicator } from "@/components/BootIndicator";
 
 const PPOI_PATH_INSTANCE = "ppoi-paths-ofac";
@@ -19,9 +18,19 @@ interface SiblingResult {
   downBytes: number;
 }
 
+type RunningPhase = "starting" | "fetching";
+const PHASE_LABEL: Record<RunningPhase, string> = {
+  starting: "Starting",
+  fetching: "Fetching 16-sibling path",
+};
+const PHASE_FRACTION: Record<RunningPhase, number> = {
+  starting: 0.05,
+  fetching: 0.85,
+};
+
 type State =
   | { kind: "idle" }
-  | { kind: "running"; done: number }
+  | { kind: "running"; phase: RunningPhase; done: number }
   | {
       kind: "ok";
       siblings: SiblingResult[];
@@ -41,10 +50,6 @@ export function PpoiPath() {
     boot.ensureBooted(PPOI_PATH_INSTANCE).catch(() => undefined);
   }, [boot]);
 
-  const debouncedRun = useDebouncedCallback(() => {
-    runVerify();
-  }, 1_500);
-
   function siblingRowIndex(level: number, leaf: number): number {
     const base = (1 << 17) - (1 << (17 - level));
     return base + ((leaf >>> level) ^ 1);
@@ -53,10 +58,11 @@ export function PpoiPath() {
   async function runVerify() {
     if (state.kind === "running") return;
     const wallStart = performance.now();
-    setState({ kind: "running", done: 0 });
+    setState({ kind: "running", phase: "starting", done: 0 });
     const myLeaf = leafIndex;
     const siblings: SiblingResult[] = [];
     const rows = Array.from({ length: 16 }, (_, level) => siblingRowIndex(level, myLeaf));
+    setState({ kind: "running", phase: "fetching", done: 0 });
     let batchResult;
     try {
       batchResult = await boot.batchQuery(PPOI_PATH_INSTANCE, rows);
@@ -83,9 +89,6 @@ export function PpoiPath() {
         downBytes: perRowDown,
       };
     }
-    setState((prev) =>
-      prev.kind === "running" ? { kind: "running", done: rows.length } : prev
-    );
     const totalUpBytes = batchResult.queryBytes;
     const totalDownBytes = batchResult.responseBytes;
     const pastFill = siblings.every((s) => s.hex.toLowerCase().endsWith(RAILGUN_ZERO_LEAF));
@@ -108,31 +111,43 @@ export function PpoiPath() {
       ? "error"
       : "idle";
 
+  const running = state.kind === "running";
+  const runningPhase: RunningPhase | null = running ? state.phase : null;
+  const runningFraction = runningPhase ? PHASE_FRACTION[runningPhase] : 0;
+  const runningLabel = runningPhase ? PHASE_LABEL[runningPhase] : null;
+
   return (
     <section className="bg-bg">
       <FadeStyle />
       <div className="max-w-[1280px] mx-auto px-6 sm:px-10 lg:px-14">
-        {/* Hero */}
-        <div className="pt-20 sm:pt-28 pb-16">
-          <p className="text-[0.72rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
+        {/* Hero  -  tight one-screen description */}
+        <div className="pt-14 sm:pt-20 pb-10">
+          <p className="text-[0.7rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
             Demo · PPOI path
           </p>
-          <h1 className="mt-5 font-serif text-5xl sm:text-6xl lg:text-[5.5rem] leading-[0.98] tracking-tight max-w-[18ch] font-normal">
-            Hide the
-            <br />
-            spend.
+          <h1 className="mt-4 font-serif text-4xl sm:text-5xl lg:text-[3.75rem] leading-[1.02] tracking-tight max-w-[20ch] font-normal">
+            Hide the spend.
           </h1>
-          <p className="mt-7 text-fg-secondary text-lg leading-relaxed max-w-[58ch]">
-            The operator no longer learns which UTXO you are about to spend
-            before chain confirms.
+          <p className="mt-6 text-fg-secondary text-[1.02rem] leading-relaxed max-w-[68ch]">
+            When preparing a spend, the stock Railgun wallet asks the PPOI server
+            for the Merkle path of the input it is about to move. The server
+            learns the exact UTXO and the spend timing before the block confirms.
+            Combined with a colluding broadcaster, this is a deanonymization
+            channel.
+          </p>
+          <p className="mt-3 text-fg-secondary text-[1.02rem] leading-relaxed max-w-[68ch]">
+            With PIR, the 16-sibling auth-path retrieval runs encrypted end-to-end
+            in one round-trip against{" "}
+            <code className="font-mono text-[0.95em] text-fg">{PPOI_PATH_INSTANCE}</code>.
+            The operator sees only opaque ciphertext  -  no leaf index, no path.
           </p>
         </div>
 
-        {/* Step 01 - Pick */}
+        {/* Step 01 - Pick  -  aligned controls, immediate loader on click */}
         <Step num="01" kicker="Pick a leaf">
-          <div className="mt-8 flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+          <div className="mt-8 flex flex-wrap items-end gap-4">
             <div className="flex flex-col gap-1.5">
-              <span className="text-[0.72rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
+              <span className="text-[0.7rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
                 leaf index
               </span>
               <input
@@ -145,53 +160,37 @@ export function PpoiPath() {
                     Math.max(0, Math.min(CHAIN.treeMaxItems - 1, Number(e.target.value)))
                   )
                 }
-                disabled={state.kind === "running"}
-                className="bg-bg-secondary border border-fg-faint px-3 py-2.5 font-mono text-[0.85rem] text-fg outline-none focus:border-accent w-32 tabular-nums"
+                disabled={running}
+                className="h-11 bg-bg-secondary border border-fg-faint px-3 font-mono text-[0.85rem] text-fg outline-none focus:border-accent w-32 tabular-nums disabled:opacity-50"
               />
             </div>
             <button
               type="button"
-              onClick={debouncedRun}
-              disabled={state.kind === "running" || !boot.isReady(PPOI_PATH_INSTANCE)}
-              className="inline-flex items-center gap-2.5 bg-fg text-bg border border-fg text-[0.78rem] font-semibold uppercase tracking-[0.08em] px-5 py-3.5 hover:bg-transparent hover:text-fg transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-fg disabled:hover:text-bg"
+              onClick={runVerify}
+              disabled={running || !boot.isReady(PPOI_PATH_INSTANCE)}
+              className="h-11 inline-flex items-center gap-2.5 bg-fg text-bg border border-fg text-[0.78rem] font-semibold uppercase tracking-[0.08em] px-5 hover:bg-transparent hover:text-fg transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-fg disabled:hover:text-bg"
             >
               {!boot.isReady(PPOI_PATH_INSTANCE)
                 ? "Preparing keys"
-                : state.kind === "running"
-                ? `Fetching ${state.done}/16`
+                : runningPhase
+                ? PHASE_LABEL[runningPhase]
                 : "Fetch path"}
-              <ArrowRight size={13} />
+              {running ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <ArrowRight size={13} />
+              )}
             </button>
+            {running && (
+              <span className="text-[0.7rem] font-mono text-fg-muted self-center">
+                leaf {formatNumber(leafIndex)}
+              </span>
+            )}
           </div>
         </Step>
 
-        {/* Step 02 - What changes */}
-        <Step num="02" kicker="What changes">
-          <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-px bg-fg-faint border border-fg-faint">
-            <div className="bg-bg p-8 sm:p-10 border-l-2 border-public">
-              <span className="text-[0.72rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
-                Stock wallet
-              </span>
-              <p className="mt-5 text-fg-secondary leading-relaxed">
-                When preparing a spend, the wallet asks the PPOI server for the
-                Merkle path of the input being spent. The server learns the exact
-                UTXO and the spend timing before any block confirms.
-              </p>
-            </div>
-            <div className="bg-bg p-8 sm:p-10 border-l-2 border-accent">
-              <span className="text-[0.72rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
-                Raven
-              </span>
-              <p className="mt-5 text-fg-secondary leading-relaxed">
-                16 encrypted queries pull each sibling on the path privately. The
-                operator does not learn which input is moving.
-              </p>
-            </div>
-          </div>
-        </Step>
-
-        {/* Step 03 - Result */}
-        <Step num="03" kicker="Result">
+        {/* Step 02 - Result  -  phase-aware running state */}
+        <Step num="02" kicker="Result">
           {state.kind === "error" ? (
             <div className="mt-8 border border-error/40 bg-error/5 p-5 text-[0.85rem] text-fg-secondary">
               <strong className="text-error">verify failed</strong> · {state.message}
@@ -224,38 +223,62 @@ export function PpoiPath() {
                 <ResultStat label="operator learned" value="nothing" tone="accent" />
               </div>
             </div>
+          ) : runningPhase ? (
+            <div className="mt-8 rr-fade-in flex items-start gap-5">
+              <span className="inline-flex w-10 h-10 items-center justify-center border border-accent/40 bg-accent/5 shrink-0 mt-1">
+                <Loader2 size={18} className="text-accent animate-spin" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-[0.72rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
+                  {runningLabel}
+                </div>
+                <div className="mt-3 h-1 w-full bg-fg-faint relative overflow-hidden">
+                  <div
+                    className="h-full bg-accent transition-all duration-300"
+                    style={{ width: `${Math.round(runningFraction * 100)}%` }}
+                  />
+                </div>
+                <p className="mt-3 text-[0.78rem] text-fg-muted leading-relaxed">
+                  {runningPhase === "fetching"
+                    ? "16 encrypted queries are in flight as one /batch round-trip against " + PPOI_PATH_INSTANCE + ". Open DevTools and watch the POST body  -  opaque ciphertext, no leaf index."
+                    : "Click queued. Starting now..."}
+                </p>
+              </div>
+            </div>
           ) : (
             <p className="mt-8 text-fg-muted">Run step 01 to populate.</p>
           )}
         </Step>
 
-        {/* Single technical-details disclosure */}
+        {/* Technical-details disclosure  -  mini progress strip when running + collapsed */}
         <details className="mb-24 border border-fg-faint bg-bg-secondary group">
-          <summary className="cursor-pointer list-none flex items-center gap-5 px-6 sm:px-8 py-6 hover:bg-bg-hover transition-colors">
-            <span className="inline-flex w-9 h-9 items-center justify-center border border-accent/50 text-accent font-mono text-lg shrink-0 group-open:rotate-45 transition-transform">
-              +
-            </span>
-            <div className="flex flex-col gap-1 flex-1 min-w-0">
-              <span className="text-[0.78rem] uppercase tracking-[0.22em] text-fg font-mono font-medium">
-                Show technical details
+          <summary className="cursor-pointer list-none px-6 sm:px-8 py-6 hover:bg-bg-hover transition-colors">
+            <div className="flex items-center gap-5">
+              <span className="inline-flex w-9 h-9 items-center justify-center border border-accent/50 text-accent font-mono text-lg shrink-0 group-open:rotate-45 transition-transform">
+                +
               </span>
-              <span className="text-[0.78rem] text-fg-secondary">
-                Per-stage card · operator log diff
-              </span>
+              <div className="flex flex-col gap-1 flex-1 min-w-0">
+                <span className="text-[0.78rem] uppercase tracking-[0.22em] text-fg font-mono font-medium">
+                  {running ? "Live  -  " + (runningLabel ?? "running") : "Show technical details"}
+                </span>
+                <span className="text-[0.78rem] text-fg-secondary">
+                  Per-stage card · operator log diff
+                </span>
+              </div>
+              {running && (
+                <Loader2 size={16} className="text-accent shrink-0 animate-spin group-open:hidden" />
+              )}
             </div>
+            {running && (
+              <div className="mt-4 h-[2px] w-full bg-fg-faint relative overflow-hidden group-open:hidden">
+                <div
+                  className="h-full bg-accent transition-all duration-300"
+                  style={{ width: `${Math.round(runningFraction * 100)}%` }}
+                />
+              </div>
+            )}
           </summary>
           <div className="px-6 sm:px-8 pt-8 pb-10 space-y-8 border-t border-fg-faint">
-            <div className="text-fg-secondary leading-relaxed max-w-[72ch]">
-              <p>
-                When stock wallets prepare a spend, they ask the PPOI server for the Merkle path of
-                the input being spent. The server learns spend timing and the exact UTXO before any
-                block confirms. Combined with broadcaster collusion this is a deanonymization
-                channel. Raven substitutes a 16-sibling private retrieval against{" "}
-                <code className="font-mono text-[0.85rem]">{PPOI_PATH_INSTANCE}</code>; the
-                operator does not learn which input is moving.
-              </p>
-            </div>
-
             <BootIndicator primaryInstance={PPOI_PATH_INSTANCE} />
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -271,7 +294,7 @@ export function PpoiPath() {
                       Each query encrypts a single row index. The 16 indices walk the levels 0..15
                       of the per-list IMT for the leaf at index{" "}
                       <code className="font-mono text-[0.78rem]">{formatNumber(leafIndex)}</code>.
-                      All 16 fan out concurrently.
+                      All 16 fan out concurrently as one /batch round-trip.
                     </p>
                   ),
                 }}
@@ -329,8 +352,8 @@ export function PpoiPath() {
                   label: "Operator log diff",
                   defaultOpen: true,
                   body: (
-                    <pre className="text-mono-xs text-fg-secondary whitespace-pre-wrap leading-relaxed">{`> POST /v1/instance/${PPOI_PATH_INSTANCE}/query (x16)
-< 200 (encrypted ServerResponse)
+                    <pre className="text-mono-xs text-fg-secondary whitespace-pre-wrap leading-relaxed">{`> POST /v1/instance/${PPOI_PATH_INSTANCE}/batch (x1, 16 rows)
+< 200 (encrypted ServerResponse[16])
 . up: ~${formatBytes(PIR_BENCH.upBytes * 16)} encrypted
 . down: ~${formatBytes(PIR_BENCH.downBytes * 16)} encrypted
 . operator does NOT see: leaf ${formatNumber(leafIndex)}, list key`}</pre>

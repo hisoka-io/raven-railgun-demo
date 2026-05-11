@@ -23,14 +23,27 @@ export const CHAIN = {
   liveTreeIndex: 3,
 } as const;
 
+// On-device wallet storage, computed from the actual LevelDB layout
+// in clones/railgun-research/repo-cache/engine/src/{merkletree,note}.
+//
+//   per-leaf row     : ~1.24 KiB (key 324 B + Commitment JSON ~920 B)
+//   per-filled tree  : ~162 MiB (leaves 77.7 + IMT 56.6 + nullifiers ~24 + overhead)
+//   current mainnet  : ~520 MiB (tree 0/1/2 filled + tree 3 ~20.5 K leaves)
+//   four-tree saturation : ~633 MiB (4 × 65 536 leaves)
+//
+// PIR-enabled wallet keeps only `(tree, position)` indexes for OWNED
+// notes (msgpack ~730 B each), so a typical wallet stores a few KB and
+// PIR-fetches the auth path on demand. Commit-tree cost collapses from
+// O(N) toward O(owned notes).
 export const WALLET_FOOTPRINT = {
   imtNodesPerTree: 131_071,
   imtBytesPerTree: 131_071 * 32,
-  rawCommitmentBytesV2: 352,
-  rawCommitmentBytesShield: 384,
-  ldbExpansionFactor: 2.3,
-  perDeviceRawBytes: 100 * 1024 * 1024,
-  perDeviceOnDiskBytes: 275 * 1024 * 1024,
+  perLeafBytes: 1_244,
+  perFilledTreeBytes: 162 * 1024 * 1024,
+  currentMainnetLeaves: 217_096,
+  currentMainnetBytes: 520 * 1024 * 1024,
+  fullSaturationBytes: 633 * 1024 * 1024,
+  perOwnedNoteBytes: 730,
   dirtyAncestorsPerInsert: 16,
 } as const;
 

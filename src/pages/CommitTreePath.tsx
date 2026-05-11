@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Check } from "lucide-react";
+import { ArrowRight, Check, Loader2 } from "lucide-react";
 import { useBoot } from "@/lib/boot-context";
 import { CHAIN, PIR_BENCH, WALLET_FOOTPRINT, PIR_TABLES } from "@/lib/numbers";
 import { foldMerklePath } from "@/lib/poseidon-fold";
@@ -9,7 +9,6 @@ import { fetchCommitmentAt, type ChainCommitment } from "@/lib/subsquid-client";
 import { formatBytes, formatLatency, formatNumber, shortHex } from "@/lib/format";
 import { PerStageCard, type StagePhase } from "@/components/PerStageCard";
 import { HexBlock } from "@/components/HexBlock";
-import { useDebouncedCallback } from "@/lib/use-debounced-callback";
 import { BootIndicator } from "@/components/BootIndicator";
 import { CONFIG } from "@/lib/config";
 
@@ -21,9 +20,11 @@ interface SiblingResult {
   downBytes: number;
 }
 
+type RunningPhase = "starting" | "booting" | "pir" | "fold" | "chain";
+
 type VerifyState =
   | { kind: "idle" }
-  | { kind: "running"; phase: "pir" | "fold" | "chain"; progress?: number }
+  | { kind: "running"; phase: RunningPhase; progress?: number }
   | {
       kind: "done";
       siblings: SiblingResult[];
@@ -36,6 +37,24 @@ type VerifyState =
       totalDownBytes: number;
     }
   | { kind: "error"; message: string };
+
+const PHASE_LABEL: Record<RunningPhase, string> = {
+  starting: "Starting",
+  booting: "Booting PIR session",
+  pir: "Fetching encrypted path",
+  fold: "Folding with Poseidon",
+  chain: "Verifying on mainnet",
+};
+
+// Fraction of the run that each phase represents (purely cosmetic; drives
+// the mini progress strip on the collapsed technical-details summary).
+const PHASE_FRACTION: Record<RunningPhase, number> = {
+  starting: 0.04,
+  booting: 0.18,
+  pir: 0.72,
+  fold: 0.86,
+  chain: 0.96,
+};
 
 const INSTANCE_FOR_TREE = (treeNumber: number) => `commit-tree-${treeNumber}`;
 const TREE1_LAST_FILLED_INDEX = 65_534;
@@ -93,10 +112,12 @@ export function CommitTreePath() {
     if (state.kind === "idle") return { pir: "idle", fold: "idle", chain: "idle" };
     if (state.kind === "error") return { pir: "error", fold: "error", chain: "error" };
     if (state.kind === "running") {
+      const p = state.phase;
+      const pirDone = p === "fold" || p === "chain";
       return {
-        pir: state.phase === "pir" ? "running" : state.phase === "fold" || state.phase === "chain" ? "done" : "idle",
-        fold: state.phase === "fold" ? "running" : state.phase === "chain" ? "done" : "idle",
-        chain: state.phase === "chain" ? "running" : "idle",
+        pir: p === "pir" ? "running" : pirDone ? "done" : (p === "starting" || p === "booting") ? "idle" : "idle",
+        fold: p === "fold" ? "running" : p === "chain" ? "done" : "idle",
+        chain: p === "chain" ? "running" : "idle",
       };
     }
     return { pir: "done", fold: "done", chain: "done" };
@@ -105,10 +126,6 @@ export function CommitTreePath() {
   useEffect(() => {
     boot.ensureBooted(chosenInstance).catch(() => undefined);
   }, [boot, chosenInstance]);
-
-  const debouncedRun = useDebouncedCallback(() => {
-    runVerify();
-  }, 1_500);
 
   function siblingRowIndex(level: number, leaf: number): number {
     const base = (1 << 17) - (1 << (17 - level));
@@ -132,8 +149,14 @@ export function CommitTreePath() {
     const safeSet = (s: VerifyState) => { if (!cancelled()) setState(s); };
     const wallStart = performance.now();
 
+    // Immediate feedback on click  -  starting state lands before any
+    // async work fires so the user sees the button + collapsed
+    // technical-details strip animate within ~1 frame.
+    safeSet({ kind: "running", phase: "starting" });
+
     let cold;
     try {
+      safeSet({ kind: "running", phase: "booting" });
       cold = await boot.ensureBooted(myInstance);
     } catch (err) {
       safeSet({ kind: "error", message: err instanceof Error ? err.message : String(err) });
@@ -230,35 +253,52 @@ export function CommitTreePath() {
   const running = state.kind === "running";
   const inputMax = maxLeafIndex ?? CHAIN.treeMaxItems - 1;
 
+  const runningPhase: RunningPhase | null = running ? state.phase : null;
+  const runningFraction = runningPhase ? PHASE_FRACTION[runningPhase] : 0;
+  const runningLabel = runningPhase
+    ? runningPhase === "pir"
+      ? `${PHASE_LABEL.pir} · 16 queries in flight`
+      : PHASE_LABEL[runningPhase]
+    : null;
+
   return (
     <section className="bg-bg">
       <FadeStyle />
       <div className="max-w-[1280px] mx-auto px-6 sm:px-10 lg:px-14">
-        {/* Hero */}
-        <div className="pt-20 sm:pt-28 pb-16">
-          <p className="text-[0.72rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
+        {/* Hero  -  tight one-screen description + verified storage numbers */}
+        <div className="pt-14 sm:pt-20 pb-10">
+          <p className="text-[0.7rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
             Demo · Commit-tree path
           </p>
-          <h1 className="mt-5 font-serif text-5xl sm:text-6xl lg:text-[5.5rem] leading-[0.98] tracking-tight max-w-[18ch] font-normal">
-            Verify a Merkle root
-            <br />
-            without the tree.
+          <h1 className="mt-4 font-serif text-4xl sm:text-5xl lg:text-[3.75rem] leading-[1.02] tracking-tight max-w-[20ch] font-normal">
+            Verify a Merkle root without the tree.
           </h1>
-          <p className="mt-7 text-fg-secondary text-lg leading-relaxed max-w-[58ch]">
-            Pull 16 sibling hashes privately, fold them locally, ask mainnet if the
-            root agrees.
+
+          <p className="mt-6 text-fg-secondary text-[1.02rem] leading-relaxed max-w-[68ch]">
+            Stock Railgun engines persist every shield + transact event ever appended on
+            chain  -  {formatNumber(WALLET_FOOTPRINT.currentMainnetLeaves)} commitments across {CHAIN.staticTrees} filled trees plus tree {CHAIN.liveTreeIndex}  -  alongside the
+            full IMT. <span className="text-fg">~{formatBytes(WALLET_FOOTPRINT.currentMainnetBytes)}</span>{" "}
+            on a phone today, climbing past <span className="text-fg">~{formatBytes(WALLET_FOOTPRINT.fullSaturationBytes)}</span> once tree {CHAIN.liveTreeIndex} fills. As Railgun gets
+            natively integrated into DeFi, trees fill in days. Mobile and edge
+            wallets can't keep up.
+          </p>
+          <p className="mt-3 text-fg-secondary text-[1.02rem] leading-relaxed max-w-[68ch]">
+            With PIR, a wallet trial-decrypts once, remembers only the{" "}
+            <code className="font-mono text-[0.95em] text-fg">(tree, position)</code>{" "}
+            of its owned notes  -  a few KB  -  and PIR-fetches the auth path on demand when
+            it is about to spend. On-device commit-tree cost collapses from O(N) toward O(owned notes).
           </p>
         </div>
 
-        {/* Step 01 - Pick */}
+        {/* Step 01 - Pick  -  aligned controls, immediate loader on click */}
         <Step num="01" kicker="Pick a leaf">
-          <div className="mt-8 flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+          <div className="mt-8 flex flex-wrap items-end gap-4">
             <Field label="tree">
               <select
                 value={treeNumber}
                 onChange={(e) => setTreeNumber(Number(e.target.value))}
                 disabled={running}
-                className="bg-bg-secondary border border-fg-faint px-3 py-2.5 font-mono text-[0.85rem] text-fg outline-none focus:border-accent"
+                className="h-11 bg-bg-secondary border border-fg-faint px-3 font-mono text-[0.85rem] text-fg outline-none focus:border-accent disabled:opacity-50"
               >
                 {[0, 1, 2, 3].map((n) => (
                   <option key={n} value={n}>tree {n}</option>
@@ -277,58 +317,44 @@ export function CommitTreePath() {
                   )
                 }
                 disabled={running}
-                className="bg-bg-secondary border border-fg-faint px-3 py-2.5 font-mono text-[0.85rem] text-fg outline-none focus:border-accent w-32 tabular-nums"
+                className="h-11 bg-bg-secondary border border-fg-faint px-3 font-mono text-[0.85rem] text-fg outline-none focus:border-accent w-32 tabular-nums disabled:opacity-50"
               />
             </Field>
             <button
               type="button"
-              onClick={debouncedRun}
+              onClick={runVerify}
               disabled={running || !ready}
-              className="inline-flex items-center gap-2.5 bg-fg text-bg border border-fg text-[0.78rem] font-semibold uppercase tracking-[0.08em] px-5 py-3.5 hover:bg-transparent hover:text-fg transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-fg disabled:hover:text-bg"
+              className="h-11 inline-flex items-center gap-2.5 bg-fg text-bg border border-fg text-[0.78rem] font-semibold uppercase tracking-[0.08em] px-5 hover:bg-transparent hover:text-fg transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-fg disabled:hover:text-bg"
             >
               {!boot.isReady(chosenInstance)
                 ? "Preparing keys"
                 : running
                 ? state.phase === "pir"
                   ? `Fetching ${state.progress ?? 0}/16`
-                  : state.phase === "fold"
-                  ? "Folding"
-                  : "Verifying"
+                  : PHASE_LABEL[state.phase]
                 : "Fetch + verify"}
-              <ArrowRight size={13} />
+              {running ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <ArrowRight size={13} />
+              )}
             </button>
+            {running && (
+              <span className="text-[0.7rem] font-mono text-fg-muted self-center">
+                tree {treeNumber} · leaf {formatNumber(leafIndex)}
+              </span>
+            )}
           </div>
+          {leafOutOfRange && (
+            <p className="mt-4 text-[0.78rem] text-fg-muted leading-relaxed max-w-[58ch]">
+              Leaf {formatNumber(leafIndex)} is past the fill point of tree {treeNumber}.
+              Pick a leaf in [0, {formatNumber(maxLeafIndex ?? 0)}].
+            </p>
+          )}
         </Step>
 
-        {/* Step 02 - What changes */}
-        <Step num="02" kicker="What changes">
-          <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-px bg-fg-faint border border-fg-faint">
-            <div className="bg-bg p-8 sm:p-10 border-l-2 border-public">
-              <span className="text-[0.72rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
-                Stock wallet
-              </span>
-              <p className="mt-5 text-fg-secondary leading-relaxed">
-                The phone replays every shield and transact event ever appended on
-                chain and persists the full Merkle tree locally. Roughly{" "}
-                {formatBytes(WALLET_FOOTPRINT.perDeviceRawBytes)} per device,
-                growing daily.
-              </p>
-            </div>
-            <div className="bg-bg p-8 sm:p-10 border-l-2 border-accent">
-              <span className="text-[0.72rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
-                Raven
-              </span>
-              <p className="mt-5 text-fg-secondary leading-relaxed">
-                16 encrypted queries pull just the sibling hashes for the leaf you
-                pick. The operator holds the bearer token but never sees which row
-                was requested.
-              </p>
-            </div>
-          </div>
-        </Step>
-
-        {/* Step 03 - Result */}
-        <Step num="03" kicker="Result">
+        {/* Step 02 - Result */}
+        <Step num="02" kicker="Result">
           {state.kind === "done" ? (
             <div className="mt-8 rr-fade-in">
               <div className="flex items-start gap-5">
@@ -355,44 +381,68 @@ export function CommitTreePath() {
             <div className="mt-8 border border-error/40 bg-error/5 p-5 text-[0.85rem] text-fg-secondary">
               <strong className="text-error">verify failed</strong> · {state.message}
             </div>
+          ) : state.kind === "running" ? (
+            <div className="mt-8 rr-fade-in flex items-start gap-5">
+              <span className="inline-flex w-10 h-10 items-center justify-center border border-accent/40 bg-accent/5 shrink-0 mt-1">
+                <Loader2 size={18} className="text-accent animate-spin" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-[0.72rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
+                  {runningLabel}
+                </div>
+                <div className="mt-3 h-1 w-full bg-fg-faint relative overflow-hidden">
+                  <div
+                    className="h-full bg-accent transition-all duration-300"
+                    style={{ width: `${Math.round(runningFraction * 100)}%` }}
+                  />
+                </div>
+                <p className="mt-3 text-[0.78rem] text-fg-muted leading-relaxed">
+                  {state.phase === "pir"
+                    ? "16 encrypted queries are flying against the operator. Open DevTools and watch the POST to /v1/instance/" + chosenInstance + "/batch  -  the body is opaque ciphertext, no row index."
+                    : state.phase === "fold"
+                    ? "Folding the 16 sibling hashes locally with Poseidon to a candidate root."
+                    : state.phase === "chain"
+                    ? "Read-only eth_call to the Railgun proxy: rootHistory(tree, root)."
+                    : state.phase === "booting"
+                    ? "Loading the cached PIR session from IndexedDB (or building one if this device hasn't seen this instance before)."
+                    : "Click queued. Starting now..."}
+                </p>
+              </div>
+            </div>
           ) : (
             <p className="mt-8 text-fg-muted">Run step 01 to populate.</p>
           )}
-          {leafOutOfRange && state.kind !== "done" && (
-            <p className="mt-6 text-[0.85rem] text-fg-muted leading-relaxed max-w-[58ch]">
-              Leaf {formatNumber(leafIndex)} is past the fill point of tree {treeNumber}. Pick a leaf in [0, {formatNumber(maxLeafIndex ?? 0)}].
-            </p>
-          )}
         </Step>
 
-        {/* Single technical-details disclosure */}
+        {/* Single technical-details disclosure  -  mini progress strip when running + collapsed */}
         <details className="mb-24 border border-fg-faint bg-bg-secondary group">
-          <summary className="cursor-pointer list-none flex items-center gap-5 px-6 sm:px-8 py-6 hover:bg-bg-hover transition-colors">
-            <span className="inline-flex w-9 h-9 items-center justify-center border border-accent/50 text-accent font-mono text-lg shrink-0 group-open:rotate-45 transition-transform">
-              +
-            </span>
-            <div className="flex flex-col gap-1 flex-1 min-w-0">
-              <span className="text-[0.78rem] uppercase tracking-[0.22em] text-fg font-mono font-medium">
-                Show technical details
+          <summary className="cursor-pointer list-none px-6 sm:px-8 py-6 hover:bg-bg-hover transition-colors">
+            <div className="flex items-center gap-5">
+              <span className="inline-flex w-9 h-9 items-center justify-center border border-accent/50 text-accent font-mono text-lg shrink-0 group-open:rotate-45 transition-transform">
+                +
               </span>
-              <span className="text-[0.78rem] text-fg-secondary">
-                Per-stage cards · indexer freshness · operator log diff
-              </span>
+              <div className="flex flex-col gap-1 flex-1 min-w-0">
+                <span className="text-[0.78rem] uppercase tracking-[0.22em] text-fg font-mono font-medium">
+                  {running ? "Live  -  " + (runningLabel ?? "running") : "Show technical details"}
+                </span>
+                <span className="text-[0.78rem] text-fg-secondary">
+                  Per-stage cards · indexer freshness · operator log diff
+                </span>
+              </div>
+              {running && (
+                <Loader2 size={16} className="text-accent shrink-0 animate-spin group-open:hidden" />
+              )}
             </div>
+            {running && (
+              <div className="mt-4 h-[2px] w-full bg-fg-faint relative overflow-hidden group-open:hidden">
+                <div
+                  className="h-full bg-accent transition-all duration-300"
+                  style={{ width: `${Math.round(runningFraction * 100)}%` }}
+                />
+              </div>
+            )}
           </summary>
           <div className="px-6 sm:px-8 pt-8 pb-10 space-y-8 border-t border-fg-faint">
-            <div className="text-fg-secondary leading-relaxed max-w-[72ch]">
-              <p>
-                Stock Railgun wallets must replay every shield and transact event ever appended on
-                chain (across {CHAIN.staticTrees} filled trees plus the live tree) and persist the
-                full incremental Merkle tree plus a copy of every raw commitment record locally.
-                Raven PIR-fetches the auth path on demand: pick any
-                leaf in any tree, recover its 16 sibling hashes via 16 encrypted queries against{" "}
-                <code className="font-mono text-[0.85rem]">{chosenInstance}</code>, fold them
-                locally with Poseidon, ask mainnet whether the root agrees.
-              </p>
-            </div>
-
             <BootIndicator primaryInstance={chosenInstance} />
 
             {indexerStatus && indexerStatus.lastApplied !== null && indexerStatus.chainHead !== null && (
