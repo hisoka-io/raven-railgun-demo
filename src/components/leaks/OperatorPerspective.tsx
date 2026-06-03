@@ -1,9 +1,12 @@
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
+import { Info } from "lucide-react";
+import { Tooltip } from "@/components/ui/Tooltip";
 
 export interface LearnedField {
   label: string;
   value: string;
   emphasis?: boolean;
+  info?: ReactNode;
 }
 
 interface OperatorPerspectiveProps {
@@ -32,6 +35,17 @@ export function OperatorPerspective({
             <dt className="text-fg-muted shrink-0 w-[5.5rem]">{field.label}</dt>
             <dd className={`min-w-0 break-all ${field.emphasis ? "text-fg" : "text-fg-secondary"}`}>
               {field.value}
+              {field.info ? (
+                <Tooltip content={field.info}>
+                  <button
+                    type="button"
+                    aria-label={`${field.label} detail`}
+                    className="ml-1.5 inline-flex align-middle text-fg-muted hover:text-accent transition-colors"
+                  >
+                    <Info size={11} />
+                  </button>
+                </Tooltip>
+              ) : null}
             </dd>
           </div>
         ))}

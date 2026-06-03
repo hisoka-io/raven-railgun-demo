@@ -4,6 +4,8 @@ import { CONFIG } from "@/lib/config";
 import { decodeHttpResponse } from "@/lib/http-response";
 import { getNoxClient } from "@/lib/nox";
 import { useNoxClient } from "@/hooks/useNoxClient";
+import { useClientIp } from "@/hooks/useClientIp";
+import { useNoxNodes } from "@/hooks/useNoxNodes";
 import {
   CITATIONS_VERIFIED_AT,
   EXAMPLE_EMPTY_RECIPIENT,
@@ -13,6 +15,7 @@ import {
   permalink,
 } from "@/lib/leak-data";
 import { BeforeAfterPane } from "@/components/leaks/BeforeAfterPane";
+import { IpDetails } from "@/components/leaks/IpDetails";
 import { CitationFooter } from "@/components/leaks/CitationFooter";
 import { NoxRouteVisualizer } from "@/components/leaks/NoxRouteVisualizer";
 import { OperatorPerspective } from "@/components/leaks/OperatorPerspective";
@@ -101,6 +104,8 @@ async function fireNox(url: string, address: string): Promise<Pane> {
 
 export function LeakSmokingGun(): ReactElement {
   const nox = useNoxClient();
+  const clientIp = useClientIp();
+  const noxNodes = useNoxNodes();
   const [address, setAddress] = useState(EXAMPLE_UNSHIELD_RECIPIENT);
   const [before, setBefore] = useState<Pane>(IDLE_PANE);
   const [after, setAfter] = useState<Pane>(IDLE_PANE);
@@ -111,6 +116,20 @@ export function LeakSmokingGun(): ReactElement {
   const valid = ADDRESS_PATTERN.test(normalized);
   const operator = useMemo(() => hostOf(CONFIG.subsquidUrl, "rail-squid.squids.live"), []);
   const emptyResult = before.rows === 0 || after.rows === 0;
+
+  const beforeIpValue = clientIp.data?.ip ?? "your public IP";
+  const beforeIpInfo =
+    clientIp.data && clientIp.data.details.length > 0 ? (
+      <IpDetails heading="what the indexer can resolve from your IP" rows={clientIp.data.details} />
+    ) : undefined;
+  const afterIpValue = noxNodes ? noxNodes.exit : "a NOX exit node";
+  const afterIpInfo = noxNodes ? (
+    <IpDetails
+      heading="shared NOX exit pool"
+      rows={noxNodes.exitIps.map((ip, i) => ({ label: `exit ${i + 1}`, value: ip }))}
+      note="NOX picks a fresh 3-hop route per packet (entry, mix, exit). rail-squid records one of these exit IPs, shared across every NOX user. Your IP never reaches it."
+    />
+  ) : undefined;
 
   async function run(): Promise<void> {
     if (!valid || running) return;
@@ -209,18 +228,18 @@ export function LeakSmokingGun(): ReactElement {
                     operator={operator}
                     tone="leak"
                     learns={[
-                      { label: "ip", value: "your public IP" },
+                      { label: "ip", value: beforeIpValue, emphasis: true, info: beforeIpInfo },
                       { label: "query", value: QUERY_NAME },
                       { label: "toAddress", value: normalized, emphasis: true },
                       { label: "timestamp", value: firedAt ?? "(set on run)" },
                     ]}
-                    note="The indexer ties your IP to the exact address you are interested in, at the moment you sync."
+                    note="The indexer ties your real IP to the exact address you are interested in, at the moment you sync."
                   />
                 </>
               }
               after={
                 <>
-                  <NoxRouteVisualizer />
+                  <NoxRouteVisualizer entry={noxNodes?.entry} mix={noxNodes?.mix} exit={noxNodes?.exit} />
                   <WireFormatBlock
                     method="POST"
                     url={CONFIG.subsquidUrl}
@@ -235,7 +254,7 @@ export function LeakSmokingGun(): ReactElement {
                     operator={operator}
                     tone="shielded"
                     learns={[
-                      { label: "ip", value: "a NOX exit node IP" },
+                      { label: "ip", value: afterIpValue, info: afterIpInfo },
                       { label: "query", value: QUERY_NAME },
                       { label: "toAddress", value: normalized, emphasis: true },
                       { label: "timestamp", value: firedAt ?? "(set on run)" },

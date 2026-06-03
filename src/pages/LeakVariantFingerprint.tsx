@@ -4,6 +4,8 @@ import { CONFIG } from "@/lib/config";
 import { decodeHttpResponse } from "@/lib/http-response";
 import { getNoxClient } from "@/lib/nox";
 import { useNoxClient } from "@/hooks/useNoxClient";
+import { useClientIp } from "@/hooks/useClientIp";
+import { useNoxNodes } from "@/hooks/useNoxNodes";
 import {
   ARTIFACTS_CID,
   CITATIONS_VERIFIED_AT,
@@ -21,6 +23,7 @@ import {
   type VariantShape,
 } from "@/lib/leak-data";
 import { BeforeAfterPane } from "@/components/leaks/BeforeAfterPane";
+import { IpDetails } from "@/components/leaks/IpDetails";
 import { CitationFooter } from "@/components/leaks/CitationFooter";
 import { NoxRouteVisualizer } from "@/components/leaks/NoxRouteVisualizer";
 import { OperatorPerspective } from "@/components/leaks/OperatorPerspective";
@@ -107,6 +110,8 @@ async function fireNoxArtifact(gateway: string, kind: ArtifactKind, shape: Varia
 
 export function LeakVariantFingerprint(): ReactElement {
   const nox = useNoxClient();
+  const clientIp = useClientIp();
+  const noxNodes = useNoxNodes();
   const [shape, setShape] = useState<VariantShape>(VARIANT_SHAPES[1]);
   const [cache, setCache] = useState<CacheState>("cold");
   const [before, setBefore] = useState<ArtifactResults>(idleResults());
@@ -118,6 +123,20 @@ export function LeakVariantFingerprint(): ReactElement {
   const operator = useMemo(() => hostOf(gateway, "ipfs-lb.com"), [gateway]);
   const variant = variantString(shape);
   const samplePath = `/ipfs/${ARTIFACTS_CID.slice(0, 6)}.../prover/snarkjs/${variant}.wasm.br`;
+
+  const beforeIpValue = clientIp.data?.ip ?? "your public IP";
+  const beforeIpInfo =
+    clientIp.data && clientIp.data.details.length > 0 ? (
+      <IpDetails heading="what the gateway can resolve from your IP" rows={clientIp.data.details} />
+    ) : undefined;
+  const afterIpValue = noxNodes ? noxNodes.exit : "a NOX exit node";
+  const afterIpInfo = noxNodes ? (
+    <IpDetails
+      heading="shared NOX exit pool"
+      rows={noxNodes.exitIps.map((ip, i) => ({ label: `exit ${i + 1}`, value: ip }))}
+      note="NOX picks a fresh 3-hop route per packet (entry, mix, exit). ipfs-lb records one of these exit IPs, shared across every NOX user. Your IP never reaches it."
+    />
+  ) : undefined;
 
   async function run(): Promise<void> {
     if (running) return;
@@ -231,18 +250,18 @@ export function LeakVariantFingerprint(): ReactElement {
                     operator={operator}
                     tone="leak"
                     learns={[
-                      { label: "ip", value: "your public IP" },
+                      { label: "ip", value: beforeIpValue, emphasis: true, info: beforeIpInfo },
                       { label: "path", value: samplePath, emphasis: true },
                       { label: "variant", value: `${variant} (${shape.nullifiers} in, ${shape.commitments} out)`, emphasis: true },
                       { label: "timestamp", value: firedAt ?? "(set on run)" },
                     ]}
-                    note="The variant in the path is the transaction shape, fetched roughly thirty seconds before the transaction lands on chain."
+                    note="The variant in the path is the transaction shape, tied to your real IP, fetched roughly thirty seconds before the transaction lands on chain."
                   />
                 </>
               }
               after={
                 <>
-                  <NoxRouteVisualizer />
+                  <NoxRouteVisualizer entry={noxNodes?.entry} mix={noxNodes?.mix} exit={noxNodes?.exit} />
                   {artifactKinds().map((k) => (
                     <ArtifactRow
                       key={k}
@@ -260,7 +279,7 @@ export function LeakVariantFingerprint(): ReactElement {
                     operator={operator}
                     tone="shielded"
                     learns={[
-                      { label: "ip", value: "a NOX exit node IP" },
+                      { label: "ip", value: afterIpValue, info: afterIpInfo },
                       { label: "path", value: samplePath, emphasis: true },
                       { label: "variant", value: `${variant} (${shape.nullifiers} in, ${shape.commitments} out)`, emphasis: true },
                       { label: "timestamp", value: firedAt ?? "(set on run)" },
