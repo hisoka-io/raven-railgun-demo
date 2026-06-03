@@ -7,6 +7,7 @@ interface ImportMetaEnv {
   readonly VITE_SUBSQUID_URL?: string;
   readonly VITE_PPOI_PUBLIC_URL?: string;
   readonly VITE_ETH_RPC_URL?: string;
+  readonly VITE_IPFS_GATEWAY?: string;
 }
 
 interface ImportMeta {
