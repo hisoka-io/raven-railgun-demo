@@ -11,6 +11,8 @@ import { PpoiStatus } from "@/pages/PpoiStatus";
 import { PpoiPath } from "@/pages/PpoiPath";
 import { Operator } from "@/pages/Operator";
 import { Architecture } from "@/pages/Architecture";
+import { LeakSmokingGun } from "@/pages/LeakSmokingGun";
+import { LeakVariantFingerprint } from "@/pages/LeakVariantFingerprint";
 import "./index.css";
 
 const router = createBrowserRouter([
@@ -24,6 +26,8 @@ const router = createBrowserRouter([
       { path: "ppoi-path", element: <PpoiPath /> },
       { path: "operator", element: <Operator /> },
       { path: "architecture", element: <Architecture /> },
+      { path: "leak/smoking-gun", element: <LeakSmokingGun /> },
+      { path: "leak/variant-fingerprint", element: <LeakVariantFingerprint /> },
     ],
   },
 ]);

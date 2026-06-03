@@ -10,6 +10,7 @@ dist
 .env.*.local
 no-commit
 no-commit-screens
+CLAUDE.md
 C:\\Users\\*
 lighthouse.*
 .idea
