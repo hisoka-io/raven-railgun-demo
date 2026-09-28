@@ -5,9 +5,7 @@ import { cn } from "@/lib/cn";
 
 const TABS: { to: string; label: string }[] = [
   { to: "/", label: "Overview" },
-  { to: "/commit-tree", label: "Commit-Tree Path" },
-  { to: "/ppoi-status", label: "PPOI Status" },
-  { to: "/ppoi-path", label: "PPOI Path" },
+  { to: "/observer", label: "Wire Observer" },
   { to: "/operator", label: "Operator" },
   { to: "/architecture", label: "Architecture" },
 ];

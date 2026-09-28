@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "start": "serve -s dist -l ${PORT:-3000}",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc -b",
+    "observer:proxy": "node scripts/observer/proxy.mjs",
+    "observer:synthetic": "node scripts/observer/run-synthetic.mjs public/samples/observer-synthetic-session.json"
   },
   "dependencies": {
     "@hisoka-io/nox-client": "0.1.8",
@@ -18,21 +21,17 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-toast": "^1.2.15",
     "@radix-ui/react-tooltip": "^1.2.8",
-    "@railgun-community/poseidon-hash-wasm": "^1.0.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "framer-motion": "^12.38.0",
     "graphql-request": "^7.1.2",
     "lucide-react": "^0.470.0",
-    "raven-inspire-client-wasm": "file:./vendor/raven-inspire-client-wasm",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.15.0",
     "recharts": "^2.15.0",
     "serve": "^14.2.4",
     "shiki": "^1.24.0",
-    "tailwind-merge": "^3.5.0",
-    "viem": "^2.47.6"
+    "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

@@ -1,0 +1,624 @@
+{
+ "format": "raven-observer-log",
+ "version": 1,
+ "meta": {
+  "source": "synthetic",
+  "startedAt": "2026-09-28T21:23:16.379Z",
+  "upstreams": {
+   "raven": "http://127.0.0.1:34989",
+   "aggregator": "http://127.0.0.1:36423"
+  },
+  "commitments": [
+   "1c76a708cdcd50142b3ba7509700072ade0abe778f8c298a36dd6545f4405b35",
+   "030a43c28edcd97a42e4e3bbf5f3d3b23e810a78d21316703e2d333e94a6c537",
+   "0790182f8f0f22cec97ee1e97b5f9f527b2ed8defe4c6e833084a1c93ac2fb64",
+   "06f80f99de4788cb4283165dbfda437fa39e50cad9533fc3961dc3e12628d7ac",
+   "151e7907d089f52b0c50a94ee21c79deb4c870f706290cc2d7585f08ecc85999"
+  ],
+  "commitmentOrigins": {
+   "1c76a708cdcd50142b3ba7509700072ade0abe778f8c298a36dd6545f4405b35": "wallet notes",
+   "030a43c28edcd97a42e4e3bbf5f3d3b23e810a78d21316703e2d333e94a6c537": "wallet notes",
+   "0790182f8f0f22cec97ee1e97b5f9f527b2ed8defe4c6e833084a1c93ac2fb64": "wallet notes",
+   "06f80f99de4788cb4283165dbfda437fa39e50cad9533fc3961dc3e12628d7ac": "wallet notes",
+   "151e7907d089f52b0c50a94ee21c79deb4c870f706290cc2d7585f08ecc85999": "wallet notes"
+  },
+  "run": "raven",
+  "learn": false,
+  "note": "Synthetic session: real stock wallet transport and real Raven SDK with its WASM, against local mock upstreams serving the SDK's fixture data. Sizes of params and session keys are the fixture's, not production's. The fixture's rows are status-shaped, so the Raven path fetch stops at decode and no fold completes: the root-pin reads that follow a completed fold are absent here. A self-signed spend sends no roots check, so neither run has one.",
+  "logFile": "observer-synthetic-session.json"
+ },
+ "events": [
+  {
+   "id": 1,
+   "run": "stock",
+   "t": "2026-09-28T21:23:16.813Z",
+   "tMs": 1790630596813,
+   "upstream": "aggregator",
+   "destination": "127.0.0.1:36423",
+   "method": "POST",
+   "route": "/",
+   "routeTemplate": "ppoi_validated_txid",
+   "rpcMethod": "ppoi_validated_txid",
+   "requestBytes": 142,
+   "requestContentType": "application/json",
+   "requestHeaders": {
+    "content-type": "application/json",
+    "user-agent": "axios/1.7.2"
+   },
+   "requestPreview": {
+    "kind": "text",
+    "text": "{\"jsonrpc\":\"2.0\",\"method\":\"ppoi_validated_txid\",\"params\":{\"chainType\":\"0\",\"chainID\":\"1\",\"txidVersion\":\"V2_PoseidonMerkle\"},\"id\":1790630596787}",
+    "truncated": false
+   },
+   "requestMatches": [],
+   "watchedAtScan": 5,
+   "status": 200,
+   "durationMs": 4,
+   "responseBytes": 164,
+   "responseDecodedBytes": 164,
+   "responseContentType": "application/json",
+   "responseHeaders": {
+    "content-type": "application/json"
+   },
+   "responsePreview": {
+    "kind": "text",
+    "text": "{\"jsonrpc\":\"2.0\",\"id\":1790630596787,\"result\":{\"validatedTxidIndex\":4242,\"validatedMerkleroot\":\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+    "truncated": false
+   },
+   "responseMatches": []
+  },
+  {
+   "id": 2,
+   "run": "stock",
+   "t": "2026-09-28T21:23:17.072Z",
+   "tMs": 1790630597072,
+   "upstream": "aggregator",
+   "destination": "127.0.0.1:36423",
+   "method": "POST",
+   "route": "/",
+   "routeTemplate": "ppoi_validate_txid_merkleroot",
+   "rpcMethod": "ppoi_validate_txid_merkleroot",
+   "requestBytes": 256,
+   "requestContentType": "application/json",
+   "requestHeaders": {
+    "content-type": "application/json",
+    "user-agent": "axios/1.7.2"
+   },
+   "requestPreview": {
+    "kind": "text",
+    "text": "{\"jsonrpc\":\"2.0\",\"method\":\"ppoi_validate_txid_merkleroot\",\"params\":{\"chainType\":\"0\",\"chainID\":\"1\",\"txidVersion\":\"V2_PoseidonMerkle\",\"tree\":0,\"index\":4242,\"merkleroot\":\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"id\":1790630597070}",
+    "truncated": false
+   },
+   "requestMatches": [],
+   "watchedAtScan": 5,
+   "status": 200,
+   "durationMs": 1,
+   "responseBytes": 50,
+   "responseDecodedBytes": 50,
+   "responseContentType": "application/json",
+   "responseHeaders": {
+    "content-type": "application/json"
+   },
+   "responsePreview": {
+    "kind": "text",
+    "text": "{\"jsonrpc\":\"2.0\",\"id\":1790630597070,\"result\":true}",
+    "truncated": false
+   },
+   "responseMatches": []
+  },
+  {
+   "id": 3,
+   "run": "stock",
+   "t": "2026-09-28T21:23:17.325Z",
+   "tMs": 1790630597325,
+   "upstream": "aggregator",
+   "destination": "127.0.0.1:36423",
+   "method": "POST",
+   "route": "/",
+   "routeTemplate": "ppoi_pois_per_list",
+   "rpcMethod": "ppoi_pois_per_list",
+   "requestBytes": 791,
+   "requestContentType": "application/json",
+   "requestHeaders": {
+    "content-type": "application/json",
+    "user-agent": "axios/1.7.2"
+   },
+   "requestPreview": {
+    "kind": "text",
+    "text": "{\"jsonrpc\":\"2.0\",\"method\":\"ppoi_pois_per_list\",\"params\":{\"chainType\":\"0\",\"chainID\":\"1\",\"txidVersion\":\"V2_PoseidonMerkle\",\"listKeys\":[\"4242424242424242424242424242424242424242424242424242424242424242\"],\"blindedCommitmentDatas\":[{\"blindedCommitment\":\"0x1c76a708cdcd50142b3ba7509700072ade0abe778f8c298a36dd6545f4405b35\",\"type\":\"Shield\"},{\"blindedCommitment\":\"0x030a43c28edcd97a42e4e3bbf5f3d3b23e810a78d21316703e2d333e94a6c537\",\"type\":\"Transact\"},{\"blindedCommitment\":\"0x0790182f8f0f22cec97ee1e97b5f9f527b2ed8defe4c6e833084a1c93ac2fb64\",\"type\":\"Transact\"},{\"blindedCommitment\":\"0x06f80f99de4788cb4283165dbfda437fa39e50cad9533fc3961dc3e12628d7ac\",\"type\":\"Transact\"},{\"blindedCommitment\":\"0x151e7907d089f52b0c50a94ee21c79deb4c870f706290cc2d7585f08ecc85999\",\"type\":\"Transact\"}]},\"id\":1790630597324}",
+    "truncated": false
+   },
+   "requestMatches": [
+    {
+     "commitment": "1c76a708cdcd50142b3ba7509700072ade0abe778f8c298a36dd6545f4405b35",
+     "encodings": [
+      "hex"
+     ]
+    },
+    {
+     "commitment": "030a43c28edcd97a42e4e3bbf5f3d3b23e810a78d21316703e2d333e94a6c537",
+     "encodings": [
+      "hex"
+     ]
+    },
+    {
+     "commitment": "0790182f8f0f22cec97ee1e97b5f9f527b2ed8defe4c6e833084a1c93ac2fb64",
+     "encodings": [
+      "hex"
+     ]
+    },
+    {
+     "commitment": "06f80f99de4788cb4283165dbfda437fa39e50cad9533fc3961dc3e12628d7ac",
+     "encodings": [
+      "hex"
+     ]
+    },
+    {
+     "commitment": "151e7907d089f52b0c50a94ee21c79deb4c870f706290cc2d7585f08ecc85999",
+     "encodings": [
+      "hex"
+     ]
+    }
+   ],
+   "watchedAtScan": 5,
+   "status": 200,
+   "durationMs": 2,
+   "responseBytes": 777,
+   "responseDecodedBytes": 777,
+   "responseContentType": "application/json",
+   "responseHeaders": {
+    "content-type": "application/json"
+   },
+   "responsePreview": {
+    "kind": "text",
+    "text": "{\"jsonrpc\":\"2.0\",\"id\":1790630597324,\"result\":{\"0x1c76a708cdcd50142b3ba7509700072ade0abe778f8c298a36dd6545f4405b35\":{\"4242424242424242424242424242424242424242424242424242424242424242\":\"Valid\"},\"0x030a43c28edcd97a42e4e3bbf5f3d3b23e810a78d21316703e2d333e94a6c537\":{\"4242424242424242424242424242424242424242424242424242424242424242\":\"Valid\"},\"0x0790182f8f0f22cec97ee1e97b5f9f527b2ed8defe4c6e833084a1c93ac2fb64\":{\"4242424242424242424242424242424242424242424242424242424242424242\":\"Valid\"},\"0x06f80f99de4788cb4283165dbfda437fa39e50cad9533fc3961dc3e12628d7ac\":{\"4242424242424242424242424242424242424242424242424242424242424242\":\"Valid\"},\"0x151e7907d089f52b0c50a94ee21c79deb4c870f706290cc2d7585f08ecc85999\":{\"4242424242424242424242424242424242424242424242424242424242424242\":\"Valid\"}}}",
+    "truncated": false
+   },
+   "responseMatches": [
+    {
+     "commitment": "1c76a708cdcd50142b3ba7509700072ade0abe778f8c298a36dd6545f4405b35",
+     "encodings": [
+      "hex"
+     ]
+    },
+    {
+     "commitment": "030a43c28edcd97a42e4e3bbf5f3d3b23e810a78d21316703e2d333e94a6c537",
+     "encodings": [
+      "hex"
+     ]
+    },
+    {
+     "commitment": "0790182f8f0f22cec97ee1e97b5f9f527b2ed8defe4c6e833084a1c93ac2fb64",
+     "encodings": [
+      "hex"
+     ]
+    },
+    {
+     "commitment": "06f80f99de4788cb4283165dbfda437fa39e50cad9533fc3961dc3e12628d7ac",
+     "encodings": [
+      "hex"
+     ]
+    },
+    {
+     "commitment": "151e7907d089f52b0c50a94ee21c79deb4c870f706290cc2d7585f08ecc85999",
+     "encodings": [
+      "hex"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 4,
+   "run": "stock",
+   "t": "2026-09-28T21:23:17.580Z",
+   "tMs": 1790630597580,
+   "upstream": "aggregator",
+   "destination": "127.0.0.1:36423",
+   "method": "POST",
+   "route": "/",
+   "routeTemplate": "ppoi_merkle_proofs",
+   "rpcMethod": "ppoi_merkle_proofs",
+   "requestBytes": 379,
+   "requestContentType": "application/json",
+   "requestHeaders": {
+    "content-type": "application/json",
+    "user-agent": "axios/1.7.2"
+   },
+   "requestPreview": {
+    "kind": "text",
+    "text": "{\"jsonrpc\":\"2.0\",\"method\":\"ppoi_merkle_proofs\",\"params\":{\"chainType\":\"0\",\"chainID\":\"1\",\"txidVersion\":\"V2_PoseidonMerkle\",\"listKey\":\"4242424242424242424242424242424242424242424242424242424242424242\",\"blindedCommitments\":[\"0x1c76a708cdcd50142b3ba7509700072ade0abe778f8c298a36dd6545f4405b35\",\"0x030a43c28edcd97a42e4e3bbf5f3d3b23e810a78d21316703e2d333e94a6c537\"]},\"id\":1790630597578}",
+    "truncated": false
+   },
+   "requestMatches": [
+    {
+     "commitment": "1c76a708cdcd50142b3ba7509700072ade0abe778f8c298a36dd6545f4405b35",
+     "encodings": [
+      "hex"
+     ]
+    },
+    {
+     "commitment": "030a43c28edcd97a42e4e3bbf5f3d3b23e810a78d21316703e2d333e94a6c537",
+     "encodings": [
+      "hex"
+     ]
+    }
+   ],
+   "watchedAtScan": 5,
+   "status": 200,
+   "durationMs": 1,
+   "responseBytes": 2621,
+   "responseDecodedBytes": 2621,
+   "responseContentType": "application/json",
+   "responseHeaders": {
+    "content-type": "application/json"
+   },
+   "responsePreview": {
+    "kind": "text",
+    "text": "{\"jsonrpc\":\"2.0\",\"id\":1790630597578,\"result\":[{\"leaf\":\"0x1c76a708cdcd50142b3ba7509700072ade0abe778f8c298a36dd6545f4405b35\",\"elements\":[\"0x1010101010101010101010101010101010101010101010101010101010101010\",\"0x1111111111111111111111111111111111111111111111111111111111111111\",\"0x1212121212121212121212121212121212121212121212121212121212121212\",\"0x1313131313131313131313131313131313131313131313131313131313131313\",\"0x1414141414141414141414141414141414141414141414141414141414141414\",\"0x1515151515151515151515151515151515151515151515151515151515151515\",\"0x1616161616161616161616161616161616161616161616161616161616161616\",\"0x1717171717171717171717171717171717171717171717171717171717171717\",\"0x1818181818181818181818181818181818181818181818181818181818181818\",\"0x1919191919191919191919191919191919191919191919191919191919191919\",\"0x1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a\",\"0x1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b\",\"0x1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c\",\"0x1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d\",\"0x1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e\",\"0x1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f\"],\"indices\":\"0x0\",\"root\":\"0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\"},{\"leaf\":\"0x030a43c28edcd97a42e4e3bbf5f3d3b23e810a78d21316703e2d333e94a6c537\",\"elements\":[\"0x1010101010101010101010101010101010101010101010101010101010101010\",\"0x1111111111111111111111111111111111111111111111111111111111111111\",\"0x1212121212121212121212121212121212121...",
+    "truncated": true
+   },
+   "responseMatches": [
+    {
+     "commitment": "1c76a708cdcd50142b3ba7509700072ade0abe778f8c298a36dd6545f4405b35",
+     "encodings": [
+      "hex"
+     ]
+    },
+    {
+     "commitment": "030a43c28edcd97a42e4e3bbf5f3d3b23e810a78d21316703e2d333e94a6c537",
+     "encodings": [
+      "hex"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 5,
+   "run": "stock",
+   "t": "2026-09-28T21:23:17.833Z",
+   "tMs": 1790630597833,
+   "upstream": "aggregator",
+   "destination": "127.0.0.1:36423",
+   "method": "POST",
+   "route": "/",
+   "routeTemplate": "ppoi_submit_transact_proof",
+   "rpcMethod": "ppoi_submit_transact_proof",
+   "requestBytes": 1245,
+   "requestContentType": "application/json",
+   "requestHeaders": {
+    "content-type": "application/json",
+    "user-agent": "axios/1.7.2"
+   },
+   "requestPreview": {
+    "kind": "text",
+    "text": "{\"jsonrpc\":\"2.0\",\"method\":\"ppoi_submit_transact_proof\",\"params\":{\"chainType\":\"0\",\"chainID\":\"1\",\"txidVersion\":\"V2_PoseidonMerkle\",\"listKey\":\"4242424242424242424242424242424242424242424242424242424242424242\",\"transactProofData\":{\"snarkProof\":{\"pi_a\":[\"0x0101010101010101010101010101010101010101010101010101010101010101\",\"0x0202020202020202020202020202020202020202020202020202020202020202\"],\"pi_b\":[[\"0x0303030303030303030303030303030303030303030303030303030303030303\",\"0x0404040404040404040404040404040404040404040404040404040404040404\"],[\"0x0505050505050505050505050505050505050505050505050505050505050505\",\"0x0606060606060606060606060606060606060606060606060606060606060606\"]],\"pi_c\":[\"0x0707070707070707070707070707070707070707070707070707070707070707\",\"0x0808080808080808080808080808080808080808080808080808080808080808\"]},\"poiMerkleroots\":[\"0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\"],\"txidMerkleroot\":\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"txidMerklerootIndex\":4242,\"blindedCommitmentsOut\":[\"0x010eac1fd6852e1f662c5a91b3d9eeda8f590e72258fffb52021e1f4f2381d55\",\"0x1fafd3a53e6ea32eb30811e0eae7eba2eed78996c46d1ef3e1653762bc231785\"],\"railgunTxidIfHasUnshield\":\"0x00\"}},\"id\":1790630597832}",
+    "truncated": false
+   },
+   "requestMatches": [],
+   "watchedAtScan": 5,
+   "status": 200,
+   "durationMs": 2,
+   "responseBytes": 50,
+   "responseDecodedBytes": 50,
+   "responseContentType": "application/json",
+   "responseHeaders": {
+    "content-type": "application/json"
+   },
+   "responsePreview": {
+    "kind": "text",
+    "text": "{\"jsonrpc\":\"2.0\",\"id\":1790630597832,\"result\":null}",
+    "truncated": false
+   },
+   "responseMatches": []
+  },
+  {
+   "id": 6,
+   "run": "raven",
+   "t": "2026-09-28T21:23:18.118Z",
+   "tMs": 1790630598118,
+   "upstream": "raven",
+   "destination": "127.0.0.1:34989",
+   "method": "GET",
+   "route": "/v1/instance/ppoi-paths-ofac-0/params",
+   "routeTemplate": "/v1/instance/{id}/params",
+   "block": "ppoi-paths-ofac-0",
+   "requestBytes": 0,
+   "requestHeaders": {
+    "user-agent": "node"
+   },
+   "requestPreview": {
+    "kind": "empty",
+    "text": ""
+   },
+   "requestMatches": [],
+   "watchedAtScan": 5,
+   "status": 200,
+   "durationMs": 2,
+   "responseBytes": 95123,
+   "responseDecodedBytes": 95123,
+   "responseContentType": "application/octet-stream",
+   "responseHeaders": {
+    "content-type": "application/octet-stream"
+   },
+   "responsePreview": {
+    "kind": "binary",
+    "text": "00080800f472010000000000524156454e5f4352535f763033000000000100000000000001c0ffffffffff0f01000000",
+    "truncated": true
+   },
+   "responseMatches": []
+  },
+  {
+   "id": 7,
+   "run": "raven",
+   "t": "2026-09-28T21:23:18.377Z",
+   "tMs": 1790630598377,
+   "upstream": "aggregator",
+   "destination": "127.0.0.1:36423",
+   "method": "POST",
+   "route": "/",
+   "routeTemplate": "ppoi_validated_txid",
+   "rpcMethod": "ppoi_validated_txid",
+   "requestBytes": 142,
+   "requestContentType": "application/json",
+   "requestHeaders": {
+    "content-type": "application/json",
+    "user-agent": "axios/1.7.2"
+   },
+   "requestPreview": {
+    "kind": "text",
+    "text": "{\"jsonrpc\":\"2.0\",\"method\":\"ppoi_validated_txid\",\"params\":{\"chainType\":\"0\",\"chainID\":\"1\",\"txidVersion\":\"V2_PoseidonMerkle\"},\"id\":1790630598376}",
+    "truncated": false
+   },
+   "requestMatches": [],
+   "watchedAtScan": 5,
+   "status": 200,
+   "durationMs": 1,
+   "responseBytes": 164,
+   "responseDecodedBytes": 164,
+   "responseContentType": "application/json",
+   "responseHeaders": {
+    "content-type": "application/json"
+   },
+   "responsePreview": {
+    "kind": "text",
+    "text": "{\"jsonrpc\":\"2.0\",\"id\":1790630598376,\"result\":{\"validatedTxidIndex\":4242,\"validatedMerkleroot\":\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+    "truncated": false
+   },
+   "responseMatches": []
+  },
+  {
+   "id": 8,
+   "run": "raven",
+   "t": "2026-09-28T21:23:18.630Z",
+   "tMs": 1790630598630,
+   "upstream": "aggregator",
+   "destination": "127.0.0.1:36423",
+   "method": "POST",
+   "route": "/",
+   "routeTemplate": "ppoi_validate_txid_merkleroot",
+   "rpcMethod": "ppoi_validate_txid_merkleroot",
+   "requestBytes": 256,
+   "requestContentType": "application/json",
+   "requestHeaders": {
+    "content-type": "application/json",
+    "user-agent": "axios/1.7.2"
+   },
+   "requestPreview": {
+    "kind": "text",
+    "text": "{\"jsonrpc\":\"2.0\",\"method\":\"ppoi_validate_txid_merkleroot\",\"params\":{\"chainType\":\"0\",\"chainID\":\"1\",\"txidVersion\":\"V2_PoseidonMerkle\",\"tree\":0,\"index\":4242,\"merkleroot\":\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"id\":1790630598629}",
+    "truncated": false
+   },
+   "requestMatches": [],
+   "watchedAtScan": 5,
+   "status": 200,
+   "durationMs": 1,
+   "responseBytes": 50,
+   "responseDecodedBytes": 50,
+   "responseContentType": "application/json",
+   "responseHeaders": {
+    "content-type": "application/json"
+   },
+   "responsePreview": {
+    "kind": "text",
+    "text": "{\"jsonrpc\":\"2.0\",\"id\":1790630598629,\"result\":true}",
+    "truncated": false
+   },
+   "responseMatches": []
+  },
+  {
+   "id": 9,
+   "run": "raven",
+   "t": "2026-09-28T21:23:18.884Z",
+   "tMs": 1790630598884,
+   "upstream": "raven",
+   "destination": "127.0.0.1:34989",
+   "method": "GET",
+   "route": "/v1/poi/4242424242424242424242424242424242424242424242424242424242424242/bc-prefixes?since=0",
+   "routeTemplate": "/v1/poi/{listKey}/bc-prefixes",
+   "requestBytes": 0,
+   "requestHeaders": {
+    "user-agent": "node"
+   },
+   "requestPreview": {
+    "kind": "empty",
+    "text": ""
+   },
+   "requestMatches": [],
+   "watchedAtScan": 5,
+   "status": 200,
+   "durationMs": 2,
+   "responseBytes": 30,
+   "responseDecodedBytes": 30,
+   "responseContentType": "application/octet-stream",
+   "responseHeaders": {
+    "content-type": "application/octet-stream",
+    "x-raven-index-next": "5",
+    "x-raven-index-total": "5"
+   },
+   "responsePreview": {
+    "kind": "binary",
+    "text": "1c76a708cdcd030a43c28edc0790182f8f0f06f80f99de47151e7907d089",
+    "truncated": false
+   },
+   "responseMatches": []
+  },
+  {
+   "id": 10,
+   "run": "raven",
+   "t": "2026-09-28T21:23:19.140Z",
+   "tMs": 1790630599140,
+   "upstream": "raven",
+   "destination": "127.0.0.1:34989",
+   "method": "GET",
+   "route": "/v1/poi/4242424242424242424242424242424242424242424242424242424242424242/bc-prefixes?since=0",
+   "routeTemplate": "/v1/poi/{listKey}/bc-prefixes",
+   "requestBytes": 0,
+   "requestHeaders": {
+    "user-agent": "node"
+   },
+   "requestPreview": {
+    "kind": "empty",
+    "text": ""
+   },
+   "requestMatches": [],
+   "watchedAtScan": 5,
+   "status": 200,
+   "durationMs": 1,
+   "responseBytes": 30,
+   "responseDecodedBytes": 30,
+   "responseContentType": "application/octet-stream",
+   "responseHeaders": {
+    "content-type": "application/octet-stream",
+    "x-raven-index-next": "5",
+    "x-raven-index-total": "5"
+   },
+   "responsePreview": {
+    "kind": "binary",
+    "text": "1c76a708cdcd030a43c28edc0790182f8f0f06f80f99de47151e7907d089",
+    "truncated": false
+   },
+   "responseMatches": []
+  },
+  {
+   "id": 11,
+   "run": "raven",
+   "t": "2026-09-28T21:23:19.149Z",
+   "tMs": 1790630599149,
+   "upstream": "raven",
+   "destination": "127.0.0.1:34989",
+   "method": "POST",
+   "route": "/v1/instance/ppoi-paths-ofac-0/session",
+   "routeTemplate": "/v1/instance/{id}/session",
+   "block": "ppoi-paths-ofac-0",
+   "requestBytes": 5934,
+   "requestContentType": "application/octet-stream",
+   "requestHeaders": {
+    "content-type": "application/octet-stream",
+    "x-raven-client-id": "93f5acc91b1448ef5e80b8bb7b6fe7d7",
+    "user-agent": "node"
+   },
+   "requestPreview": {
+    "kind": "binary",
+    "text": "000803000000000000008007000000000000a6ae224ce2e0c523687845cc00259492af355d88c84f8de814bc0191f609",
+    "truncated": true
+   },
+   "requestMatches": [],
+   "watchedAtScan": 5,
+   "status": 200,
+   "durationMs": 1,
+   "responseBytes": 37,
+   "responseDecodedBytes": 37,
+   "responseContentType": "application/json",
+   "responseHeaders": {
+    "content-type": "application/json",
+    "x-raven-session": "1"
+   },
+   "responsePreview": {
+    "kind": "text",
+    "text": "{\"handle\":1,\"expires_at_unix_secs\":1}",
+    "truncated": false
+   },
+   "responseMatches": []
+  },
+  {
+   "id": 12,
+   "run": "raven",
+   "t": "2026-09-28T21:23:19.155Z",
+   "tMs": 1790630599155,
+   "upstream": "raven",
+   "destination": "127.0.0.1:34989",
+   "method": "POST",
+   "route": "/v1/instance/ppoi-paths-ofac-0/batch",
+   "routeTemplate": "/v1/instance/{id}/batch",
+   "block": "ppoi-paths-ofac-0",
+   "requestBytes": 4112,
+   "requestContentType": "application/octet-stream",
+   "requestHeaders": {
+    "content-type": "application/octet-stream",
+    "x-raven-client-id": "93f5acc91b1448ef5e80b8bb7b6fe7d7",
+    "user-agent": "node"
+   },
+   "requestPreview": {
+    "kind": "binary",
+    "text": "00080200000000000000000000000100000000000000a7cbfc37e084572b5f0423936652a22fc6818bc80242225f3b1c",
+    "truncated": true
+   },
+   "requestMatches": [],
+   "watchedAtScan": 5,
+   "status": 200,
+   "durationMs": 1,
+   "responseBytes": 2630,
+   "responseDecodedBytes": 2630,
+   "responseContentType": "application/octet-stream",
+   "responseHeaders": {
+    "content-type": "application/octet-stream",
+    "x-raven-freshness": "lag_blocks=1 applied_height=100 epoch=1 confidence=0.99"
+   },
+   "responsePreview": {
+    "kind": "binary",
+    "text": "000802000000000000001605000000000000010000008004000000000000d7a05049011fb87fd8ebb153e3c08c155bd3",
+    "truncated": true
+   },
+   "responseMatches": []
+  },
+  {
+   "id": 13,
+   "run": "raven",
+   "t": "2026-09-28T21:23:19.411Z",
+   "tMs": 1790630599411,
+   "upstream": "aggregator",
+   "destination": "127.0.0.1:36423",
+   "method": "POST",
+   "route": "/",
+   "routeTemplate": "ppoi_submit_transact_proof",
+   "rpcMethod": "ppoi_submit_transact_proof",
+   "requestBytes": 1233,
+   "requestContentType": "application/json",
+   "requestHeaders": {
+    "content-type": "application/json",
+    "user-agent": "node"
+   },
+   "requestPreview": {
+    "kind": "text",
+    "text": "{\"jsonrpc\":\"2.0\",\"method\":\"ppoi_submit_transact_proof\",\"params\":{\"chainType\":\"0\",\"chainID\":\"1\",\"txidVersion\":\"V2_PoseidonMerkle\",\"listKey\":\"4242424242424242424242424242424242424242424242424242424242424242\",\"transactProofData\":{\"snarkProof\":{\"pi_a\":[\"0x0101010101010101010101010101010101010101010101010101010101010101\",\"0x0202020202020202020202020202020202020202020202020202020202020202\"],\"pi_b\":[[\"0x0303030303030303030303030303030303030303030303030303030303030303\",\"0x0404040404040404040404040404040404040404040404040404040404040404\"],[\"0x0505050505050505050505050505050505050505050505050505050505050505\",\"0x0606060606060606060606060606060606060606060606060606060606060606\"]],\"pi_c\":[\"0x0707070707070707070707070707070707070707070707070707070707070707\",\"0x0808080808080808080808080808080808080808080808080808080808080808\"]},\"poiMerkleroots\":[\"0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\"],\"txidMerkleroot\":\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"txidMerklerootIndex\":4242,\"blindedCommitmentsOut\":[\"0x010eac1fd6852e1f662c5a91b3d9eeda8f590e72258fffb52021e1f4f2381d55\",\"0x1fafd3a53e6ea32eb30811e0eae7eba2eed78996c46d1ef3e1653762bc231785\"],\"railgunTxidIfHasUnshield\":\"0x00\"}},\"id\":1}",
+    "truncated": false
+   },
+   "requestMatches": [],
+   "watchedAtScan": 5,
+   "status": 200,
+   "durationMs": 1,
+   "responseBytes": 38,
+   "responseDecodedBytes": 38,
+   "responseContentType": "application/json",
+   "responseHeaders": {
+    "content-type": "application/json"
+   },
+   "responsePreview": {
+    "kind": "text",
+    "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}",
+    "truncated": false
+   },
+   "responseMatches": []
+  }
+ ]
+}

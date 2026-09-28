@@ -1,5 +1,4 @@
 import { Link } from "react-router-dom";
-import { StatusPill } from "./StatusPill";
 
 export function Header() {
   return (
@@ -12,7 +11,6 @@ export function Header() {
           Raven
         </Link>
         <div className="flex items-center gap-3">
-          <StatusPill />
           <a
             href="https://github.com/hisoka-io"
             target="_blank"

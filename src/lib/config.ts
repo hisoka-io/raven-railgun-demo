@@ -2,12 +2,8 @@ const isDev =
   typeof window !== "undefined" &&
   /localhost|127\.0\.0\.1/.test(window.location.host);
 
-const bearer = import.meta.env.VITE_RAVEN_BEARER;
-if (!bearer || typeof bearer !== "string" || bearer.length < 16) {
-  throw new Error(
-    "VITE_RAVEN_BEARER is required at build time and must be at least 16 chars. Set it in your environment or your CI/CF-Pages dashboard."
-  );
-}
+// Only the Operator page's /metrics read needs a credential; every other page works without.
+const bearer = import.meta.env.VITE_RAVEN_BEARER ?? "";
 
 export const CONFIG = {
   ravenUrl:

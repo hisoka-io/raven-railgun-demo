@@ -16,3 +16,4 @@ lighthouse.*
 .idea
 .vscode
 *.swp
+observer-logs

@@ -13,9 +13,6 @@ export default defineConfig({
       "@": path.resolve(__dirname, "src"),
     },
   },
-  optimizeDeps: {
-    exclude: ["raven-inspire-client-wasm"],
-  },
   define: {
     "process.env": JSON.stringify({}),
   },
