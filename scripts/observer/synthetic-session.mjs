@@ -321,7 +321,7 @@ const checks = [
   ["stock run: every status and path read names the notes", stockReads.length >= 2 && stockReads.every((e) => e.requestMatches.length > 0)],
   ["raven run: no request carries a watched commitment", ravenRun.length > 0 && leaks(ravenRun).length === 0],
   ["raven run: Raven saw only list download, params, session and encrypted batch", ravenRoutes.every((r) => ["/v1/poi/{listKey}/bc-prefixes", "/v1/instance/{id}/params", "/v1/instance/{id}/session", "/v1/instance/{id}/batch"].includes(r))],
-  ["raven run: an encrypted batch was sent, KB-scale, naming only a block", Boolean(batch) && batch.requestBytes > 1024 && typeof batch.block === "string"],
+  ["raven run: an encrypted batch was sent, KB-scale, to one block's path instance", Boolean(batch) && batch.requestBytes > 1024 && typeof batch.block === "string"],
   ["raven run: the aggregator got no status or path read", ravenRun.every((e) => !["ppoi_pois_per_list", "ppoi_merkle_proofs"].includes(e.rpcMethod))],
   ["scanner control: a planted commitment in binary is flagged", controlFlagged],
 ];

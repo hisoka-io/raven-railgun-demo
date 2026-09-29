@@ -1,22 +1,10 @@
-const isDev =
-  typeof window !== "undefined" &&
-  /localhost|127\.0\.0\.1/.test(window.location.host);
-
-// Only the Operator page's /metrics read needs a credential; every other page works without.
-const bearer = import.meta.env.VITE_RAVEN_BEARER ?? "";
-
 export const CONFIG = {
-  ravenUrl:
-    import.meta.env.VITE_RAVEN_URL ??
-    (isDev ? "/raven" : "https://raven.hisoka.io"),
-  ravenBearer: bearer,
   subsquidUrl:
     import.meta.env.VITE_SUBSQUID_URL ??
     "https://rail-squid.squids.live/squid-railgun-ethereum-v2/graphql",
   ppoiPublicUrl:
     import.meta.env.VITE_PPOI_PUBLIC_URL ??
     "https://poi.us.proxy.railwayapi.xyz",
-  defaultInstance: "commit-tree-0",
   defaultListKey:
     "efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88",
   railgunProxy: "0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9",

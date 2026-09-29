@@ -644,7 +644,11 @@ function Explainer(): ReactElement {
             That a wallet downloaded the list index, and from which position: after the first sync the download
             resumes from the wallet's last sync point. A note's status is decided on the device.
           </li>
-          <li>For each proof, an encrypted query and which 65,536-row block it targets. The row inside the block is not visible to the server.</li>
+          <li>
+            For each path the wallet needs, an encrypted query in a batch to that path's 65,536-row block. The server
+            sees the block, each query's shard of the block (the shard id travels in the clear), and the batch's query
+            count, padded with cover queries to 1, 2, 4, 8, 16 or 32. The row inside the shard is encrypted.
+          </li>
           <li>
             That queries come from one wallet process: a random client id and session, kept while the process runs,
             link its queries to a block to each other.

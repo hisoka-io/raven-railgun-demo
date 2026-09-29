@@ -10,6 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc -b",
+    "test": "node --experimental-strip-types --test 'scripts/**/*.test.mjs'",
+    "demo:precheck": "node scripts/demo-precheck.mjs",
     "observer:proxy": "node scripts/observer/proxy.mjs",
     "observer:synthetic": "node scripts/observer/run-synthetic.mjs public/samples/observer-synthetic-session.json"
   },

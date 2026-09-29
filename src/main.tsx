@@ -6,7 +6,6 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { Overview } from "@/pages/Overview";
 import { Observer } from "@/pages/Observer";
-import { Operator } from "@/pages/Operator";
 import { Architecture } from "@/pages/Architecture";
 import { LeakSmokingGun } from "@/pages/LeakSmokingGun";
 import { LeakVariantFingerprint } from "@/pages/LeakVariantFingerprint";
@@ -19,7 +18,6 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Overview /> },
       { path: "observer", element: <Observer /> },
-      { path: "operator", element: <Operator /> },
       { path: "architecture", element: <Architecture /> },
       { path: "leak/smoking-gun", element: <LeakSmokingGun /> },
       { path: "leak/variant-fingerprint", element: <LeakVariantFingerprint /> },

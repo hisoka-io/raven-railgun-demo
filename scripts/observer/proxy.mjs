@@ -167,6 +167,25 @@ function jsonRpcMethod(buf) {
   }
 }
 
+const BATCH_HEADER_BYTES = 10;
+
+/** What a `/batch` body carries in the clear: `[u16 BE schema][u64 LE count]`, then the queries,
+ *  each led by its u32 LE shard id. Queries in one batch share a session and parameters, so they
+ *  are the same length; when the body does not divide evenly the shard ids are left out. */
+export function decodeBatchEnvelope(buf) {
+  if (buf.length < BATCH_HEADER_BYTES + 4) return undefined;
+  const count = buf.readBigUInt64LE(2);
+  const payload = buf.length - BATCH_HEADER_BYTES;
+  if (count < 1n || count > BigInt(Math.floor(payload / 4))) return undefined;
+  const queries = Number(count);
+  if (payload % queries !== 0) return { queries };
+  const stride = payload / queries;
+  const shardIds = Array.from({ length: queries }, (_, i) =>
+    buf.readUInt32LE(BATCH_HEADER_BYTES + i * stride),
+  );
+  return { queries, shardIds };
+}
+
 /** Route shape with identifiers lifted out, so the page can group and explain requests. */
 export function describeRoute(upstream, path, rpcMethod) {
   if (upstream === "aggregator") {
@@ -510,6 +529,13 @@ export async function startObserverProxy(options) {
       requestMatches: scanForCommitments(needles, reqBody, { url: rest, request: true }),
       watchedAtScan: needles.length,
     };
+    if (route.template === "/v1/instance/{id}/batch") {
+      const batch = decodeBatchEnvelope(reqBody);
+      if (batch) {
+        event.batchQueries = batch.queries;
+        if (batch.shardIds) event.shardIds = batch.shardIds;
+      }
+    }
     keepBody(event.id, reqBody);
 
     const send = target.protocol === "https:" ? httpsRequest : httpRequest;

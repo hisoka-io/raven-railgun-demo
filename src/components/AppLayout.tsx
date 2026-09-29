@@ -6,7 +6,6 @@ import { cn } from "@/lib/cn";
 const TABS: { to: string; label: string }[] = [
   { to: "/", label: "Overview" },
   { to: "/observer", label: "Wire Observer" },
-  { to: "/operator", label: "Operator" },
   { to: "/architecture", label: "Architecture" },
 ];
 

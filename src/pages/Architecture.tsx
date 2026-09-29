@@ -33,10 +33,10 @@ const DATA: Record<NodeKey, NodeData> = {
     skips: ["Cannot hide your IP - that's NOX's job."],
   },
   raven: {
-    name: "raven.hisoka.io",
+    name: "Raven node",
     desc: "query layer · private retrieval",
     eyebrow: "Selected · query layer",
-    role: "The strict query layer. Wallet asks, Raven answers, the operator only ever sees ciphertext.",
+    role: "The strict query layer. Wallet asks, Raven answers; the operator sees each encrypted query's block and shard, never the note.",
     solves: [
       "Per-IP UTXO clustering at PPOI status lookup.",
       "Spend-time deanon at PPOI Merkle path lookup.",

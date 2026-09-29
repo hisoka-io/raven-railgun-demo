@@ -4,8 +4,6 @@ import tailwindcss from "@tailwindcss/vite";
 import wasm from "vite-plugin-wasm";
 import path from "path";
 
-const RAVEN_TARGET = process.env.VITE_RAVEN_TARGET ?? "https://raven.hisoka.io";
-
 export default defineConfig({
   plugins: [react(), tailwindcss(), wasm()],
   resolve: {
@@ -21,28 +19,12 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    proxy: {
-      "/raven": {
-        target: RAVEN_TARGET,
-        changeOrigin: true,
-        secure: true,
-        rewrite: (p: string) => p.replace(/^\/raven/, ""),
-      },
-    },
   },
   preview: {
     port: 4173,
-    proxy: {
-      "/raven": {
-        target: RAVEN_TARGET,
-        changeOrigin: true,
-        secure: true,
-        rewrite: (p: string) => p.replace(/^\/raven/, ""),
-      },
-    } as never,
   },
   build: {
     target: "esnext",
-    sourcemap: true,
+    sourcemap: false,
   },
 });

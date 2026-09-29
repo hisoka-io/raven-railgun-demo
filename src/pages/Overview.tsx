@@ -15,8 +15,8 @@ export function Overview() {
             for Railgun.
           </h1>
           <p className="mt-7 text-fg-secondary text-lg leading-relaxed max-w-[58ch]">
-            A drop-in adapter that lets a Railgun wallet ask the chain what it
-            needs, without letting the operator know who or what was asked for.
+            A drop-in adapter that lets a Railgun wallet read its POI status and
+            Merkle paths without naming a note to the server that answers.
           </p>
           <div className="mt-9 flex flex-wrap gap-3 items-center">
             <Link
@@ -44,7 +44,7 @@ export function Overview() {
           <Pillar
             kicker="What the operator sees"
             value="encrypted queries"
-            detail="No commitment and no row index. The operator still sees which 65,536-row block a query targets, sizes, timing and the IP."
+            detail="No commitment, and the row inside a shard is encrypted. The operator sees each query's 65,536-row block and shard, the padded query count, a per-process client id, sizes, timing and the IP."
           />
           <Pillar
             kicker="What stays the same"
@@ -64,8 +64,9 @@ export function Overview() {
               records every request. Each body is searched for the wallet's own
               blinded commitments. With Raven off, the aggregator receives them:
               every note on a fresh sync, each new note until it turns valid, and
-              the notes each transfer spends. With Raven on, the requests to Raven
-              are encrypted queries that name only a block, and none carries a commitment.
+              the notes each transfer spends. With Raven on, no request to Raven
+              carries a commitment: the list download names a sync position, and each
+              encrypted query names its block and shard.
             </p>
           </div>
         </div>

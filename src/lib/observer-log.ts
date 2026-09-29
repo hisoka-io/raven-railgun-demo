@@ -25,6 +25,10 @@ export interface ObserverEvent {
   route: string;
   routeTemplate: string;
   block?: string;
+  /** A `/batch` body's query count, padding included, as the node reads it. */
+  batchQueries?: number;
+  /** Each query's shard id, in wire order, as the node reads it. */
+  shardIds?: number[];
   rpcMethod?: string;
   status?: number;
   durationMs?: number;
@@ -180,14 +184,31 @@ export function explain(e: ObserverEvent): Explanation {
           "Fresh random key material and a random client id, both kept for the life of the wallet process. No note, no index.",
       };
     case "/v1/instance/{id}/batch":
+      return {
+        kind: "pir-query",
+        title: "Encrypted path query",
+        learns:
+          `The block id${e.block ? ` (${e.block})` : ""}; ` +
+          `the query count${e.batchQueries !== undefined ? ` (${e.batchQueries})` : ""}, padded with cover queries to 1, 2, 4, 8, 16 or 32; ` +
+          `each query's shard id, in the clear${e.shardIds ? ` (${e.shardIds.join(", ")})` : ""}; the size; ` +
+          "and the client id and session handle that link it to this wallet process's other queries to the block. " +
+          "The row inside each shard is encrypted.",
+      };
     case "/v1/instance/{id}/query":
       return {
         kind: "pir-query",
         title: "Encrypted path query",
-        learns: `The block id${e.block ? ` (${e.block})` : ""}, the size, and the client id that links it to this wallet process's other queries to the block. The row asked for is encrypted.`,
+        learns:
+          `The block id${e.block ? ` (${e.block})` : ""}, the query's shard id in the clear, and the size; ` +
+          "when the query carries a session handle, it and the client id link it to this wallet process's other queries to the block. " +
+          "The row inside the shard is encrypted.",
       };
     case "/v1/status":
-      return { kind: "status", title: "Node status", learns: "Nothing about the wallet." };
+      return {
+        kind: "status",
+        title: "Node status",
+        learns: "A read of the node's own state. The request carries nothing from the wallet.",
+      };
     default:
       return { kind: "other", title: e.routeTemplate, learns: "See the body." };
   }
