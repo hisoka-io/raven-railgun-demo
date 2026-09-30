@@ -94,3 +94,35 @@ test("no page says the Raven node learns nothing or sees only ciphertext", () =>
   assert.match(explainer, /shard id travels in the clear/);
   assert.match(explainer, /padded with cover queries to 1, 2, 4, 8, 16 or 32/);
 });
+
+test("Raven and the aggregator are proxied on distinct origins, each leg on its own port", async () => {
+  const upstream = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => res.end(`${req.method} ${req.url}`));
+  });
+  await new Promise((ok) => upstream.listen(0, "127.0.0.1", ok));
+  const base = `http://127.0.0.1:${upstream.address().port}`;
+  const dir = mkdtempSync(join(tmpdir(), "observer-origins-"));
+  const proxy = await startObserverProxy({ port: 0, raven: base, aggregator: base, logPath: join(dir, "log.json") });
+  try {
+    // The SDK compares origins; a pin source on the Raven endpoint's origin is refused.
+    assert.notEqual(new URL(proxy.url).origin, new URL(proxy.aggregatorUrl).origin);
+    const raven = await fetch(`${proxy.url}/raven/v1/health/ready`);
+    assert.equal(await raven.text(), "GET /v1/health/ready");
+    const agg = await fetch(`${proxy.aggregatorUrl}/aggregator`, { method: "POST", body: "{}" });
+    assert.equal(await agg.text(), "POST /");
+    const misrouted = await fetch(`${proxy.url}/aggregator`, { method: "POST", body: "{}" });
+    assert.equal(misrouted.status, 421);
+    assert.equal(await misrouted.text(), `the aggregator leg listens on ${proxy.aggregatorUrl}/aggregator`);
+    assert.equal((await fetch(`${proxy.aggregatorUrl}/raven/v1/status`)).status, 421);
+    assert.equal((await fetch(`${proxy.aggregatorUrl}/observer/log`)).status, 404);
+    assert.equal((await fetch(`${proxy.url}/observer/log`)).status, 200);
+    const deadline = Date.now() + 5000;
+    while (proxy.events.length < 2 && Date.now() < deadline) await new Promise((ok) => setTimeout(ok, 20));
+    assert.deepEqual(proxy.events.map((e) => e.upstream).sort(), ["aggregator", "raven"]);
+  } finally {
+    await proxy.close();
+    upstream.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -2,6 +2,8 @@
 // Recording proxy between a wallet and its two POI upstreams (a Raven node and the PPOI
 // aggregator). Bytes are forwarded unchanged; each exchange is recorded, checked for the
 // watched note commitments, streamed to the observer page over SSE and written to a JSON log.
+// Each upstream gets its own listen port: the SDK refuses a pin source that shares the Raven
+// endpoint's origin, so one port for both would turn pin verification off.
 
 import { createServer, request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -245,6 +247,8 @@ export async function startObserverProxy(options) {
     // An absent CLI flag arrives as undefined and must not override a default.
     ...Object.fromEntries(Object.entries(options).filter(([, v]) => v !== undefined)),
   };
+  // Port 0 asks for an ephemeral port, so its neighbour is meaningless.
+  const aggregatorPort = opts.aggregatorPort ?? (opts.port === 0 ? 0 : opts.port + 1);
   const upstreams = {
     raven: opts.raven ? opts.raven.replace(/\/$/, "") : undefined,
     aggregator: opts.aggregator ? opts.aggregator.replace(/\/$/, "") : undefined,
@@ -593,34 +597,63 @@ export async function startObserverProxy(options) {
     upstreamReq.end(reqBody);
   }
 
-  const server = createServer((req, res) => {
-    const url = req.url ?? "/";
-    const path = url.split("?")[0];
-    const handle = async () => {
-      if (path.startsWith("/observer/")) return handleControl(req, res, path);
-      const m = url.match(/^\/(raven|aggregator)(\/.*|\?.*)?$/s);
-      if (m) {
-        const rest = m[2] ? (m[2].startsWith("?") ? `/${m[2]}` : m[2]) : "/";
-        return handleProxy(req, res, m[1], rest);
-      }
-      res.writeHead(404, { "content-type": "text/plain" });
-      res.end("routes: /raven/*, /aggregator, /observer/events, /observer/log");
-    };
-    handle().catch((err) => {
-      if (!res.headersSent) res.writeHead(500, { "content-type": "text/plain" });
-      res.end(String(err));
-    });
-  });
+  const listenUrls = {};
 
-  await new Promise((ok, fail) => {
-    server.once("error", fail);
-    server.listen(opts.port, opts.host, ok);
-  });
-  const address = server.address();
-  const url = `http://${opts.host}:${address.port}`;
+  // `leg` is the one upstream this listener forwards; the main listener also serves the page.
+  function serve(leg) {
+    return createServer((req, res) => {
+      const url = req.url ?? "/";
+      const path = url.split("?")[0];
+      const handle = async () => {
+        if (leg === "raven" && path.startsWith("/observer/")) return handleControl(req, res, path);
+        const m = url.match(/^\/(raven|aggregator)(\/.*|\?.*)?$/s);
+        if (m && m[1] === leg) {
+          const rest = m[2] ? (m[2].startsWith("?") ? `/${m[2]}` : m[2]) : "/";
+          return handleProxy(req, res, m[1], rest);
+        }
+        if (m) {
+          res.writeHead(421, { "content-type": "text/plain" });
+          res.end(`the ${m[1]} leg listens on ${listenUrls[m[1]]}/${m[1]}`);
+          return;
+        }
+        res.writeHead(404, { "content-type": "text/plain" });
+        res.end(
+          leg === "raven"
+            ? "routes: /raven/*, /observer/events, /observer/log"
+            : "routes: /aggregator",
+        );
+      };
+      handle().catch((err) => {
+        if (!res.headersSent) res.writeHead(500, { "content-type": "text/plain" });
+        res.end(String(err));
+      });
+    });
+  }
+
+  async function listen(server, port) {
+    await new Promise((ok, fail) => {
+      server.once("error", fail);
+      server.listen(port, opts.host, ok);
+    });
+    return `http://${opts.host}:${server.address().port}`;
+  }
+
+  const server = serve("raven");
+  const aggregatorServer = serve("aggregator");
+  const url = await listen(server, opts.port);
+  listenUrls.raven = url;
+  let aggregatorUrl;
+  try {
+    aggregatorUrl = await listen(aggregatorServer, aggregatorPort);
+  } catch (err) {
+    await new Promise((ok) => server.close(ok));
+    throw err;
+  }
+  listenUrls.aggregator = aggregatorUrl;
 
   return {
     url,
+    aggregatorUrl,
     events,
     setRun(label) {
       run = label;
@@ -647,7 +680,10 @@ export async function startObserverProxy(options) {
       flushLog();
       for (const res of clients) res.end();
       clients.clear();
-      await new Promise((ok) => server.close(ok));
+      await Promise.all([
+        new Promise((ok) => server.close(ok)),
+        new Promise((ok) => aggregatorServer.close(ok)),
+      ]);
     },
   };
 }
@@ -667,6 +703,9 @@ function parseArgs(argv) {
         break;
       case "--port":
         out.port = Number(next());
+        break;
+      case "--aggregator-port":
+        out.aggregatorPort = Number(next());
         break;
       case "--host":
         out.host = next();
@@ -723,8 +762,10 @@ export function readCommitmentsFile(path) {
 
 const USAGE = `observer proxy
 
-  --raven <url>             Raven node base URL (wallet endpoint becomes <proxy>/raven)
-  --aggregator <url>        PPOI aggregator JSON-RPC URL (wallet POI URL becomes <proxy>/aggregator)
+  --raven <url>             Raven node base URL (wallet endpoint becomes
+                            http://127.0.0.1:<port>/raven)
+  --aggregator <url>        PPOI aggregator JSON-RPC URL (wallet POI URL and aggregator become
+                            http://127.0.0.1:<aggregator-port>/aggregator)
   --commitment <hex>        a note commitment to watch for (repeatable)
   --commitments-file <path> JSON array, whitespace-separated list, or an earlier observer log
                             (its watch list); repeatable
@@ -735,11 +776,13 @@ const USAGE = `observer proxy
                             the clear (status and path reads, proof-submission outputs); earlier
                             requests are re-checked each time the list grows
   --allow-origin <origin>   a page origin besides loopback allowed to read the log (repeatable)
-  --port <n>                listen port (default 8790)
+  --port <n>                listen port for Raven and the page (default 8790)
+  --aggregator-port <n>     listen port for the aggregator (default port + 1). A separate
+                            origin: the SDK refuses a pin source on the Raven endpoint's origin
   --host <addr>             listen address (default 127.0.0.1)
 
 Env fallbacks: OBSERVER_RAVEN_UPSTREAM, OBSERVER_AGGREGATOR_UPSTREAM, OBSERVER_PORT,
-OBSERVER_COMMITMENTS (comma-separated).`;
+OBSERVER_AGGREGATOR_PORT, OBSERVER_COMMITMENTS (comma-separated).`;
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -756,6 +799,9 @@ async function main() {
   const proxy = await startObserverProxy({
     host: args.host,
     port: args.port ?? Number(process.env.OBSERVER_PORT ?? 8790),
+    aggregatorPort:
+      args.aggregatorPort ??
+      (process.env.OBSERVER_AGGREGATOR_PORT ? Number(process.env.OBSERVER_AGGREGATOR_PORT) : undefined),
     raven: args.raven ?? process.env.OBSERVER_RAVEN_UPSTREAM,
     aggregator: args.aggregator ?? process.env.OBSERVER_AGGREGATOR_UPSTREAM,
     commitments,
@@ -768,7 +814,7 @@ async function main() {
   process.stdout.write(
     `observer proxy on ${proxy.url}\n` +
       `  raven      ${proxy.url}/raven  ->  ${doc.meta.upstreams.raven ?? "(not set)"}\n` +
-      `  aggregator ${proxy.url}/aggregator  ->  ${doc.meta.upstreams.aggregator ?? "(not set)"}\n` +
+      `  aggregator ${proxy.aggregatorUrl}/aggregator  ->  ${doc.meta.upstreams.aggregator ?? "(not set)"}\n` +
       `  events     ${proxy.url}/observer/events\n` +
       `  watching   ${doc.meta.commitments.length} commitment(s); run label "${doc.meta.run}"\n` +
       `  log        ${proxy.logPath}\n`,

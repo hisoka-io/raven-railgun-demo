@@ -215,7 +215,7 @@ const proxy = await startObserverProxy({
     "follow a completed fold are absent here. A self-signed spend sends no roots check, so " +
     "neither run has one.",
 });
-const stock = stockClient(`${proxy.url}/aggregator`);
+const stock = stockClient(`${proxy.aggregatorUrl}/aggregator`);
 console.log(`proxy ${proxy.url}; stock client: ${stock.kind}`);
 // Lets an observer page connect first when the session is run to rehearse the live view.
 const startDelayMs = Number(process.env.OBSERVER_SYNTHETIC_START_DELAY_MS ?? 0);
@@ -249,7 +249,7 @@ const client = new sdk.RavenPOINodeInterface({
   chainId: CHAIN.id,
   chainType: CHAIN.type,
   txidVersion: TXID_VERSION,
-  upstreamFallbackEndpoint: `${proxy.url}/aggregator`,
+  upstreamFallbackEndpoint: `${proxy.aggregatorUrl}/aggregator`,
   clientPirContexts: new Map([[`t2Path:${CHAIN.id}:${LIST_KEY}`, ctx]]),
   clientPirInstanceLabels: new Map(
     Array.from({ length: BLOCKS }, (_u, b) => [`t2Path:${CHAIN.id}:${LIST_KEY}:${b}`, instanceLabel(b)]),

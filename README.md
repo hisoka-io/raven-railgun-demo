@@ -15,8 +15,10 @@ pnpm observer:proxy --raven <raven-node-url> --aggregator <ppoi-aggregator-url> 
   --commitments-file notes.txt --run stock
 ```
 
-Point the wallet's Raven endpoint at `http://127.0.0.1:8790/raven` and its POI node URL at
-`http://127.0.0.1:8790/aggregator`, open `/observer`, and connect. Each session is written to
+Point the wallet's Raven endpoint at `http://127.0.0.1:8790/raven` and both its aggregator and its
+POI node URL at `http://127.0.0.1:8791/aggregator`, open `/observer`, and connect. The aggregator
+leg has its own port because the SDK takes root pins only from an origin other than the Raven
+endpoint's; `--aggregator-port` moves it. Each session is written to
 `observer-logs/`; the Replay tab plays a saved log, and Clear starts a new file rather than
 emptying the old one.
 
