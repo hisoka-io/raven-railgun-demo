@@ -17,15 +17,15 @@ const DATA: Record<NodeKey, NodeData> = {
     name: "Wallet",
     desc: "Any Railgun client",
     eyebrow: "Selected · client",
-    role: "Any Railgun client. The wallet stays unmodified - no API surface change, no new dependencies in your app.",
+    role: "Any Railgun client. The wallet adds the Raven SDK, one install call and a config block; the Railgun engine, contracts and circuits are unchanged.",
     solves: ["Nothing on its own - privacy comes from the layers below."],
     skips: ["Without Raven and NOX, every read leaks who is asking what."],
   },
   sdk: {
     name: "Raven adapter SDK",
-    desc: "1-line drop-in",
+    desc: "one install call",
     eyebrow: "Selected · client",
-    role: "A 1-line drop-in that replaces the default RPC adapter. Same shape, private retrieval underneath.",
+    role: "Installed in place of the engine's default POI node interface, for the chains it serves. Same interface, private retrieval underneath.",
     solves: [
       "Encrypts queries before they leave the client.",
       "Folds Merkle proofs locally.",
@@ -40,7 +40,6 @@ const DATA: Record<NodeKey, NodeData> = {
     solves: [
       "Per-IP UTXO clustering at PPOI status lookup.",
       "Spend-time deanon at PPOI Merkle path lookup.",
-      "Local IMT requirement on commit-tree auth-path lookup.",
     ],
     skips: [
       "Submission-side leaks - <code>submitTransactProof</code> still carries <code>blindedCommitmentsOut[]</code>. NOX covers this.",
@@ -62,10 +61,10 @@ const DATA: Record<NodeKey, NodeData> = {
     name: "Ethereum mainnet",
     desc: "RailgunSmartWallet contract",
     eyebrow: "Selected · source of truth",
-    role: "The contract is the authority. Roots verified locally against on-chain state.",
+    role: "The contract is the authority for the wallet's own note tree. Railgun's engine checks those roots on chain, as today.",
     solves: [
-      "Provides the canonical commit-tree root.",
-      "All proofs anchor here.",
+      "Provides the canonical note-tree root.",
+      "The wallet's transaction proofs anchor here; POI proofs anchor to roots from Railgun's aggregator.",
     ],
     skips: ["Public by design. Not a privacy layer."],
   },
@@ -89,10 +88,10 @@ export function Architecture() {
             Architecture
           </h1>
           <p className="mt-7 text-fg-secondary text-lg leading-relaxed max-w-[56ch]">
-            Two strict privacy layers, stacked. Raven hides{" "}
-            <em className="font-serif italic">what you read</em>. NOX hides{" "}
-            <em className="font-serif italic">how you send</em>. Wallet, contracts, and
-            circuits stay unchanged.
+            Two privacy layers, stacked. Raven hides{" "}
+            <em className="font-serif italic">which note you read</em>. NOX hides{" "}
+            <em className="font-serif italic">how you send</em>. Railgun's engine, contracts
+            and circuits stay unchanged.
           </p>
         </div>
 

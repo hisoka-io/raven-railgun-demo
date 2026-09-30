@@ -15,7 +15,7 @@ export function Overview() {
             for Railgun.
           </h1>
           <p className="mt-7 text-fg-secondary text-lg leading-relaxed max-w-[58ch]">
-            A drop-in adapter that lets a Railgun wallet read its POI status and
+            An adapter that lets a Railgun wallet read its POI status and
             Merkle paths without naming a note to the server that answers.
           </p>
           <div className="mt-9 flex flex-wrap gap-3 items-center">
