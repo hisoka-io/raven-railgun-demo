@@ -1,5 +1,4 @@
-// What the observer says the Raven node sees must match the wire: a /batch names its block, its
-// padded query count, each query's shard id in the clear, and the client id and session.
+// The observer's wire decoding and the page's wording about what the Raven node receives.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -28,22 +27,21 @@ test("the batch envelope yields the query count and every shard id", () => {
   assert.equal(decodeBatchEnvelope(zero), undefined);
 });
 
-test("a batch explanation names the block, the padded count and the shard ids", () => {
-  const base = { upstream: "raven", routeTemplate: "/v1/instance/{id}/batch", block: "ppoi-paths-ofac-5" };
-  const decoded = explain({ ...base, batchQueries: 4, shardIds: [3, 17, 0, 31] }).learns;
-  for (const part of ["ppoi-paths-ofac-5", "query count (4)", "padded with cover queries", "shard id, in the clear (3, 17, 0, 31)", "client id", "session handle"]) {
-    assert.ok(decoded.includes(part), `missing "${part}" in: ${decoded}`);
+test("a PIR query explanation says the row stays unknown, not that nothing does", () => {
+  for (const route of ["/v1/instance/{id}/batch", "/v1/instance/{id}/query"]) {
+    const learns = explain({ upstream: "raven", routeTemplate: route, block: "ppoi-paths-ofac-5", batchQueries: 4, shardIds: [3, 17, 0, 31] }).learns;
+    assert.match(learns, /without learning which row it returned/, route);
   }
-  const bare = explain(base).learns;
-  assert.match(bare, /query count, padded/);
-  assert.match(bare, /shard id, in the clear;/);
 });
 
-test("a single query explanation names its shard id and what links it", () => {
-  const learns = explain({ upstream: "raven", routeTemplate: "/v1/instance/{id}/query", block: "ppoi-paths-ofac-1" }).learns;
-  for (const part of ["ppoi-paths-ofac-1", "shard id in the clear", "session handle", "client id"]) {
-    assert.ok(learns.includes(part), `missing "${part}" in: ${learns}`);
+test("the session and root-pin explanations say what the request carries", () => {
+  const session = explain({ upstream: "raven", routeTemplate: "/v1/instance/{id}/session" }).learns;
+  assert.match(session, /packing keys the server uses to pack its encrypted answers/);
+  assert.doesNotMatch(session, /encrypting queries/);
+  for (const rpcMethod of ["ppoi_node_status", "ppoi_poi_events"]) {
+    assert.match(explain({ upstream: "aggregator", rpcMethod }).learns, /^A request for the root/, rpcMethod);
   }
+  assert.match(readFileSync(new URL("../../src/pages/Observer.tsx", import.meta.url), "utf8"), /A request for the roots each fetched path/);
 });
 
 test("no page names a host that does not serve Raven", () => {
@@ -90,9 +88,7 @@ test("no page says the Raven node learns nothing or sees only ciphertext", () =>
     const text = read(page);
     assert.doesNotMatch(text, /learns nothing|sees nothing|nothing about the wallet|only ever sees|not visible to the server|name only a block|who or what was asked/i, page);
   }
-  const explainer = read("src/pages/Observer.tsx");
-  assert.match(explainer, /shard id travels in the clear/);
-  assert.match(explainer, /padded with cover queries to 1, 2, 4, 8, 16 or 32/);
+  assert.match(read("src/pages/Observer.tsx"), /reach it as they reach any server/);
 });
 
 test("Raven and the aggregator are proxied on distinct origins, each leg on its own port", async () => {

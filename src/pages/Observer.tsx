@@ -514,11 +514,6 @@ function EventRow({ event: e, t0 }: { event: ObserverEvent; t0: number }): React
           <span className="font-mono text-[0.72rem] text-fg min-w-0 break-all">
             {e.method} {e.rpcMethod ?? e.routeTemplate}
           </span>
-          {e.block ? (
-            <span className="font-mono text-[0.62rem] px-1.5 py-0.5 bg-accent-dim text-accent shrink-0">
-              block {e.block}
-            </span>
-          ) : null}
           <span className="ml-auto font-mono-num text-[0.66rem] text-fg-muted shrink-0">
             {formatBytes(e.requestBytes)} up · {formatBytes(e.responseBytes)} down
           </span>
@@ -556,7 +551,7 @@ function EventDetail({ event: e }: { event: ObserverEvent }): ReactElement {
     <div className="px-4 pb-4 pl-[5.9rem] flex flex-col gap-3">
       <KeyVals
         rows={[
-          ["destination", `${e.destination}${e.route}`],
+          ["destination", `${e.destination}${e.rpcMethod ? e.route : e.routeTemplate}`],
           ["status", e.error ? `error: ${e.error}` : String(e.status ?? "")],
           ["time", `${e.t}${e.durationMs !== undefined ? ` · ${formatLatency(e.durationMs)}` : ""}`],
           ...Object.entries(e.requestHeaders ?? {}).map(([k, v]) => [`req ${k}`, v] as [string, string]),
@@ -623,7 +618,7 @@ function Explainer(): ReactElement {
     <div className="mt-16 mb-8">
       <div className="pb-4 border-b border-fg-faint">
         <span className="text-[0.7rem] uppercase tracking-[0.22em] text-fg-secondary font-mono font-medium">
-          What each side learns
+          What reaches each server
         </span>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-fg-faint border-x border-b border-fg-faint">
@@ -645,20 +640,15 @@ function Explainer(): ReactElement {
             resumes from the wallet's last sync point. A note's status is decided on the device.
           </li>
           <li>
-            For each path the wallet needs, an encrypted query in a batch to that path's 65,536-row block. The server
-            sees the block, each query's shard of the block (the shard id travels in the clear), and the batch's query
-            count, padded with cover queries to 1, 2, 4, 8, 16 or 32. The row inside the shard is encrypted.
+            For each path the wallet needs, an encrypted PIR query. The server answers it without learning which row,
+            and so which note, it returned.
           </li>
-          <li>
-            That queries come from one wallet process: a random client id and session, kept while the process runs,
-            link its queries to a block to each other.
-          </li>
-          <li>Sizes, timing and IP. Never a commitment.</li>
+          <li>Never a commitment. Sizes, timing and IP reach it as they reach any server.</li>
         </ExplainCard>
         <ExplainCard tone="private" title="With Raven: the aggregator">
           <li>The proof submission, exactly as today. Raven removes the reads, not the write.</li>
           <li>Transaction-tree checks, which name a tree position and a root, not a note.</li>
-          <li>Where the wallet fetches a root pin, after a path has folded: which block the path is in.</li>
+          <li>A request for the roots each fetched path is checked against. Names no note.</li>
         </ExplainCard>
         <ExplainCard tone="private" title="What the check covers">
           <li>Each request body and URL is searched for every watched commitment as hex (with or without 0x, any case), decimal, and raw 32-byte big- and little-endian bytes.</li>

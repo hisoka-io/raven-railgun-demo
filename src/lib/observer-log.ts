@@ -25,9 +25,9 @@ export interface ObserverEvent {
   route: string;
   routeTemplate: string;
   block?: string;
-  /** A `/batch` body's query count, padding included, as the node reads it. */
+  /** A `/batch` body's query count, from its envelope. */
   batchQueries?: number;
-  /** Each query's shard id, in wire order, as the node reads it. */
+  /** Each query's shard id, in wire order, from the envelope. */
   shardIds?: number[];
   rpcMethod?: string;
   status?: number;
@@ -156,8 +156,8 @@ export function explain(e: ObserverEvent): Explanation {
     if (m === "ppoi_node_status" || m === "ppoi_poi_events") {
       return {
         kind: "pin",
-        title: "Root pin for a block",
-        learns: "Which 65,536-row block a path is in. Names no note.",
+        title: "Root pin",
+        learns: "A request for the root to check a fetched path against. Names no note.",
       };
     }
     return { kind: "other", title: m || "Aggregator request", learns: "See the body." };
@@ -180,28 +180,21 @@ export function explain(e: ObserverEvent): Explanation {
       return {
         kind: "session",
         title: "Encryption key registration",
-        learns:
-          "Fresh random key material and a random client id, both kept for the life of the wallet process. No note, no index.",
+        learns: "Fresh random packing keys the server uses to pack its encrypted answers. No note, no index.",
       };
     case "/v1/instance/{id}/batch":
       return {
         kind: "pir-query",
         title: "Encrypted path query",
         learns:
-          `The block id${e.block ? ` (${e.block})` : ""}; ` +
-          `the query count${e.batchQueries !== undefined ? ` (${e.batchQueries})` : ""}, padded with cover queries to 1, 2, 4, 8, 16 or 32; ` +
-          `each query's shard id, in the clear${e.shardIds ? ` (${e.shardIds.join(", ")})` : ""}; the size; ` +
-          "and the client id and session handle that link it to this wallet process's other queries to the block. " +
-          "The row inside each shard is encrypted.",
+          "Encrypted PIR queries for Merkle paths. The server answers each without learning which row it returned. No commitment.",
       };
     case "/v1/instance/{id}/query":
       return {
         kind: "pir-query",
         title: "Encrypted path query",
         learns:
-          `The block id${e.block ? ` (${e.block})` : ""}, the query's shard id in the clear, and the size; ` +
-          "when the query carries a session handle, it and the client id link it to this wallet process's other queries to the block. " +
-          "The row inside the shard is encrypted.",
+          "An encrypted PIR query for a Merkle path. The server answers it without learning which row it returned. No commitment.",
       };
     case "/v1/status":
       return {

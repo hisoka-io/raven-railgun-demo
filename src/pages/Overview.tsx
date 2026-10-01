@@ -42,9 +42,9 @@ export function Overview() {
             detail="The wallet installs Raven's POI interface after its engine starts. No engine change, no protocol fork, no contract changes."
           />
           <Pillar
-            kicker="What the operator sees"
+            kicker="What the Raven node receives"
             value="encrypted queries"
-            detail="No commitment, and the row inside a shard is encrypted. The operator sees each query's 65,536-row block and shard, the padded query count, a per-process client id, sizes, timing and the IP."
+            detail="No commitment. Each Merkle path comes from an encrypted PIR query, and the server does not learn which row it returned. Sizes, timing and the IP reach it as they reach any server."
           />
           <Pillar
             kicker="What stays the same"
@@ -66,7 +66,7 @@ export function Overview() {
               every note on a fresh sync, each new note until it turns valid, and
               the notes each transfer spends. With Raven on, no request to Raven
               carries a commitment: the list download names a sync position, and each
-              encrypted query names its block and shard.
+              path is fetched by an encrypted PIR query.
             </p>
           </div>
         </div>

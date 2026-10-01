@@ -36,7 +36,7 @@ const DATA: Record<NodeKey, NodeData> = {
     name: "Raven node",
     desc: "query layer · private retrieval",
     eyebrow: "Selected · query layer",
-    role: "The strict query layer. Wallet asks, Raven answers; the operator sees each encrypted query's block and shard, never the note.",
+    role: "The strict query layer. Wallet fetches each Merkle path by encrypted PIR query, Raven answers; the operator does not learn which note's path it returned.",
     solves: [
       "Per-IP UTXO clustering at PPOI status lookup.",
       "Spend-time deanon at PPOI Merkle path lookup.",

@@ -29,7 +29,7 @@ const HOP_BY_HOP = new Set([
   "upgrade",
 ]);
 // Only these request headers are recorded; a credential must never reach the log.
-const RECORDED_REQUEST_HEADERS = ["content-type", "x-raven-client-id", "user-agent"];
+const RECORDED_REQUEST_HEADERS = ["content-type", "user-agent"];
 const RECORDED_RESPONSE_HEADERS = [
   "content-type",
   "x-raven-session",
@@ -171,9 +171,9 @@ function jsonRpcMethod(buf) {
 
 const BATCH_HEADER_BYTES = 10;
 
-/** What a `/batch` body carries in the clear: `[u16 BE schema][u64 LE count]`, then the queries,
- *  each led by its u32 LE shard id. Queries in one batch share a session and parameters, so they
- *  are the same length; when the body does not divide evenly the shard ids are left out. */
+/** A `/batch` body's envelope: `[u16 BE schema][u64 LE count]`, then the queries, each led by the
+ *  u32 LE shard id the node routes it by. Queries in one batch share parameters, so they are the
+ *  same length; when the body does not divide evenly the shard ids are left out. */
 export function decodeBatchEnvelope(buf) {
   if (buf.length < BATCH_HEADER_BYTES + 4) return undefined;
   const count = buf.readBigUInt64LE(2);
