@@ -109,7 +109,10 @@ test("Raven and the aggregator are proxied on distinct origins, each leg on its 
     assert.equal(await agg.text(), "POST /");
     const misrouted = await fetch(`${proxy.url}/aggregator`, { method: "POST", body: "{}" });
     assert.equal(misrouted.status, 421);
-    assert.equal(await misrouted.text(), `the aggregator leg listens on ${proxy.aggregatorUrl}/aggregator`);
+    assert.equal(
+      await misrouted.text(),
+      `the aggregator leg listens on ${proxy.aggregatorUrl}/aggregator (Raven on) and ${proxy.stockUrl}/aggregator (Raven off)`,
+    );
     assert.equal((await fetch(`${proxy.aggregatorUrl}/raven/v1/status`)).status, 421);
     assert.equal((await fetch(`${proxy.aggregatorUrl}/observer/log`)).status, 404);
     assert.equal((await fetch(`${proxy.url}/observer/log`)).status, 200);

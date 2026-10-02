@@ -215,7 +215,9 @@ const proxy = await startObserverProxy({
     "follow a completed fold are absent here. A self-signed spend sends no roots check, so " +
     "neither run has one.",
 });
-const stock = stockClient(`${proxy.aggregatorUrl}/aggregator`);
+// The entrance port decides the run: Raven off enters on the stock port, Raven on on the other two.
+const stock = stockClient(`${proxy.stockUrl}/aggregator`);
+const ravenAggregator = stockClient(`${proxy.aggregatorUrl}/aggregator`);
 console.log(`proxy ${proxy.url}; stock client: ${stock.kind}`);
 // Lets an observer page connect first when the session is run to rehearse the live view.
 const startDelayMs = Number(process.env.OBSERVER_SYNTHETIC_START_DELAY_MS ?? 0);
@@ -223,7 +225,6 @@ const stepDelayMs = Number(process.env.OBSERVER_SYNTHETIC_STEP_DELAY_MS ?? 0);
 if (startDelayMs > 0) await new Promise((ok) => setTimeout(ok, startDelayMs));
 
 console.log("run 1: stock POI node (Raven off)");
-proxy.setRun("stock");
 await step("txid sync", () => stock.api.getLatestValidatedRailgunTxid(TXID_VERSION, CHAIN));
 await step("txid root check", () =>
   stock.api.validateRailgunTxidMerkleroot(TXID_VERSION, CHAIN, 0, 4242, hex32(0xaa)),
@@ -242,7 +243,6 @@ await step("proof of innocence: paths for the spent notes", () =>
 await step("proof submission", () => stock.api.submitPOI(TXID_VERSION, CHAIN, LIST_KEY, PROOF));
 
 console.log("run 2: Raven (Raven on)");
-proxy.setRun("raven");
 const ctx = makeClientPirContext(fixture);
 const client = new sdk.RavenPOINodeInterface({
   endpoint: `${proxy.url}/raven`,
@@ -261,10 +261,10 @@ await step("bootstrap: public PIR parameters for block 0", async () => {
   await res.arrayBuffer();
 });
 await step("txid sync (stays on the aggregator)", () =>
-  stock.api.getLatestValidatedRailgunTxid(TXID_VERSION, CHAIN),
+  ravenAggregator.api.getLatestValidatedRailgunTxid(TXID_VERSION, CHAIN),
 );
 await step("txid root check (stays on the aggregator)", () =>
-  stock.api.validateRailgunTxidMerkleroot(TXID_VERSION, CHAIN, 0, 4242, hex32(0xaa)),
+  ravenAggregator.api.validateRailgunTxidMerkleroot(TXID_VERSION, CHAIN, 0, 4242, hex32(0xaa)),
 );
 await step("balance refresh: status of every note, answered on the device", async () => {
   const got = await client.getPOIsPerList(

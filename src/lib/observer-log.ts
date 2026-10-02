@@ -49,13 +49,21 @@ export interface ObserverEvent {
   error?: string;
 }
 
+/** A proxy listen URL and the run every request through it records. */
+export interface ObserverEntrance {
+  run: string;
+  url: string;
+}
+
 export interface ObserverMeta {
   source: string;
   startedAt: string;
   upstreams: { raven?: string; aggregator?: string };
   commitments: string[];
   commitmentOrigins?: Record<string, string>;
-  run: string;
+  /** Older proxies: the run label a page switch set for new requests. */
+  run?: string;
+  entrances?: ObserverEntrance[];
   learn?: boolean;
   note?: string;
   logFile?: string;
@@ -214,6 +222,17 @@ export function isReadLeak(e: ObserverEvent): boolean {
   return kind === "names-notes" || (e.requestMatches.length > 0 && kind !== "write");
 }
 
+/** Which proxy port files a request in which pane, or undefined for a proxy that predates entrances. */
+export function entranceSummary(entrances: readonly ObserverEntrance[] | undefined): string | undefined {
+  if (!entrances || entrances.length === 0) return undefined;
+  const at = (run: string) =>
+    entrances
+      .filter((e) => e.run === run)
+      .map((e) => e.url.replace(/^https?:\/\//, ""))
+      .join(" and ") || "none";
+  return `The port decides the pane. Raven on enters on ${at("raven")}; Raven off on ${at("stock")}.`;
+}
+
 export function shortCommitment(hex: string): string {
   const h = hex.replace(/^0x/, "");
   return `0x${h.slice(0, 6)}...${h.slice(-4)}`;
@@ -236,4 +255,127 @@ export function replayOffsets(
     out.push(clock);
   }
   return out;
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** Local wall-clock time the request started, HH:MM:SS. */
+export function clockTime(tMs: number): string {
+  const d = new Date(tMs);
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+/** The request's own round trip through the proxy. A negative value is a wall-clock step, not a time. */
+export function formatDuration(ms: number | undefined): string {
+  if (ms === undefined || !Number.isFinite(ms) || ms < 0) return "—";
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
+  return `${(ms / 60_000).toFixed(1)} min`;
+}
+
+/** Rows no view may fold or merge: anything that names or carries a note, a write, or a failure. */
+export function needsAttention(e: ObserverEvent): boolean {
+  if (isReadLeak(e) || e.requestMatches.length > 0 || explain(e).kind === "write") return true;
+  return Boolean(e.error) || e.status === undefined || e.status < 200 || e.status >= 300;
+}
+
+// A repeat this far from the last one is a later step of the session, not part of the same burst.
+const MERGE_GAP_MS = 60_000;
+
+const KEY_KINDS: ReadonlySet<EventKind> = new Set(["pir-query"]);
+
+export function isKeyRequest(e: ObserverEvent): boolean {
+  return needsAttention(e) || KEY_KINDS.has(explain(e).kind);
+}
+
+function supportLabel(e: ObserverEvent): string {
+  switch (explain(e).kind) {
+    case "list-download":
+      return "index downloads";
+    case "session":
+      return "encryption keys";
+    case "pin":
+      return "root pins";
+    case "txid":
+      return "transaction checks";
+    case "roots":
+      return "roots checks";
+    case "params":
+      return "PIR parameters";
+    case "status":
+      return "node status";
+    default:
+      return e.upstream === "raven" && e.routeTemplate.startsWith("/v1/health") ? "health" : "other";
+  }
+}
+
+export interface KeyView {
+  /** Each row is one request, or a run of identical routine requests shown as one. */
+  rows: ObserverEvent[][];
+  shown: number;
+  folded: number;
+  /** What the folded requests are, most frequent first. */
+  foldedKinds: string[];
+}
+
+export function keyView(events: readonly ObserverEvent[]): KeyView {
+  const rows: ObserverEvent[][] = [];
+  const kinds = new Map<string, number>();
+  let shown = 0;
+  let prevKey: string | undefined;
+  let prevMs = 0;
+  for (const e of events) {
+    if (!isKeyRequest(e)) {
+      const label = supportLabel(e);
+      kinds.set(label, (kinds.get(label) ?? 0) + 1);
+      continue;
+    }
+    shown += 1;
+    const key = needsAttention(e) ? undefined : `${e.upstream} ${e.method} ${e.rpcMethod ?? e.routeTemplate}`;
+    if (key !== undefined && key === prevKey && Math.abs(e.tMs - prevMs) <= MERGE_GAP_MS) rows[rows.length - 1].push(e);
+    else rows.push([e]);
+    prevKey = key;
+    prevMs = e.tMs;
+  }
+  const foldedKinds = [...kinds].sort((a, b) => b[1] - a[1]).map(([k]) => k);
+  return { rows, shown, folded: events.length - shown, foldedKinds };
+}
+
+export interface PaneSummary {
+  total: number;
+  toAggregator: number;
+  toRaven: number;
+  readLeaks: number;
+  writes: number;
+  /** Distinct watched commitments named by a read. */
+  namedNotes: number;
+  shortChecked: number;
+  verdict: "leak" | "clean" | "unchecked";
+  sentBytes: number;
+  receivedBytes: number;
+}
+
+/** A pane's verdict and counters. Callers pass every request in the pane, never a view of it. */
+export function paneSummary(events: readonly ObserverEvent[], watched: number): PaneSummary {
+  const leaks = events.filter(isReadLeak);
+  const named = new Set(leaks.flatMap((e) => e.requestMatches.map((m) => m.commitment)));
+  // A request searched for fewer commitments than are watched now (an older log, or a body
+  // evicted before the list grew) is not evidence about the notes added since.
+  const shortChecked = events.filter(
+    (e) => e.rescanDropped || (e.watchedAtScan !== undefined && e.watchedAtScan < watched),
+  ).length;
+  return {
+    total: events.length,
+    toAggregator: events.filter((e) => e.upstream === "aggregator").length,
+    toRaven: events.filter((e) => e.upstream === "raven").length,
+    readLeaks: leaks.length,
+    writes: events.filter((e) => explain(e).kind === "write").length,
+    namedNotes: named.size,
+    shortChecked,
+    verdict: leaks.length > 0 ? "leak" : watched === 0 ? "unchecked" : "clean",
+    sentBytes: events.reduce((s, e) => s + e.requestBytes, 0),
+    receivedBytes: events.reduce((s, e) => s + e.responseBytes, 0),
+  };
 }

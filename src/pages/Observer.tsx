@@ -1,13 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, FileJson, Pause, Play, Radio, RotateCcw, SkipForward } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { formatBytes, formatLatency } from "@/lib/format";
+import { formatBytes } from "@/lib/format";
 import {
+  clockTime,
+  entranceSummary,
   explain,
+  formatDuration,
   isReadLeak,
+  keyView,
+  paneSummary,
   parseObserverLog,
   replayOffsets,
   shortCommitment,
+  type ObserverEntrance,
   type ObserverEvent,
   type ObserverLog,
 } from "@/lib/observer-log";
@@ -16,9 +22,11 @@ import { postObserverControl, useObserverStream } from "@/lib/use-observer-strea
 const DEFAULT_PROXY_URL = import.meta.env.VITE_OBSERVER_URL ?? "http://127.0.0.1:8790";
 const SAMPLE_LOG_URL = "/samples/observer-synthetic-session.json";
 const PROXY_URL_KEY = "raven-observer-proxy-url";
+const VIEW_KEY = "raven-observer-view";
 const SPEEDS = [1, 4, 16] as const;
 
 type Mode = "live" | "replay";
+type View = "key" | "all";
 
 function loadStoredUrl(): string {
   try {
@@ -36,10 +44,31 @@ function storeUrl(url: string): void {
   }
 }
 
+function loadStoredView(): View {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "all" ? "all" : "key";
+  } catch {
+    return "key";
+  }
+}
+
+function storeView(view: View): void {
+  try {
+    localStorage.setItem(VIEW_KEY, view);
+  } catch {
+    // Per-viewer convenience only.
+  }
+}
+
 export function Observer(): ReactElement {
   const [mode, setMode] = useState<Mode>("live");
   const [proxyUrl, setProxyUrl] = useState(loadStoredUrl);
   const [connectedUrl, setConnectedUrl] = useState<string | undefined>(undefined);
+  const [view, setView] = useState<View>(loadStoredView);
+  const chooseView = (v: View) => {
+    storeView(v);
+    setView(v);
+  };
   const live = useObserverStream(mode === "live" ? connectedUrl : undefined);
   const replay = useReplay();
 
@@ -81,7 +110,11 @@ export function Observer(): ReactElement {
           disconnect={() => setConnectedUrl(undefined)}
           liveState={live.state}
           liveError={live.error}
-          liveRun={live.log?.meta.run}
+          liveEntrances={live.log?.meta.entrances}
+          liveCount={live.log?.events.length ?? 0}
+          liveLogFile={live.log?.meta.logFile}
+          view={view}
+          setView={chooseView}
           replay={replay}
         />
 
@@ -94,7 +127,7 @@ export function Observer(): ReactElement {
               editable={mode === "live" && live.state === "open"}
               onApply={(list) =>
                 connectedUrl
-                  ? postObserverControl(connectedUrl, "commitments", { commitments: list })
+                  ? postObserverControl(connectedUrl, "commitments", { commitments: list }).then(() => undefined)
                   : Promise.resolve()
               }
             />
@@ -110,7 +143,13 @@ export function Observer(): ReactElement {
         ) : null}
 
         <div className="mt-8">
-          <SideBySide events={events} commitments={commitments} origins={log?.meta.commitmentOrigins ?? {}} />
+          <SideBySide
+            events={events}
+            commitments={commitments}
+            origins={log?.meta.commitmentOrigins ?? {}}
+            view={view}
+            showAll={() => chooseView("all")}
+          />
         </div>
 
         <Explainer />
@@ -129,18 +168,28 @@ function SourceBar(props: {
   disconnect: () => void;
   liveState: string;
   liveError: string | null;
-  liveRun: string | undefined;
+  liveEntrances: ObserverEntrance[] | undefined;
+  liveCount: number;
+  liveLogFile: string | undefined;
+  view: View;
+  setView: (v: View) => void;
   replay: ReplayControls;
 }): ReactElement {
   const { mode, setMode, replay } = props;
   const [controlError, setControlError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const control = (path: "run" | "reset", body: unknown) => {
+  const control = (path: "reset", body: unknown) => {
     if (!props.connectedUrl) return;
     setControlError(null);
-    postObserverControl(props.connectedUrl, path, body).catch((err: unknown) =>
-      setControlError(err instanceof Error ? err.message : String(err)),
-    );
+    setNotice(null);
+    // An older proxy answers a reset without `saved`; the page's own count is then the best record.
+    const before = { logFile: props.liveLogFile, events: props.liveCount };
+    postObserverControl(props.connectedUrl, path, body)
+      .then((res) => {
+        if (path === "reset") setNotice(clearNotice(savedFrom(res) ?? before));
+      })
+      .catch((err: unknown) => setControlError(err instanceof Error ? err.message : String(err)));
   };
 
   return (
@@ -159,6 +208,23 @@ function SourceBar(props: {
             {m === "live" ? "Live proxy" : "Replay a log"}
           </button>
         ))}
+        <div className="ml-auto flex items-center gap-2 px-3" role="group" aria-label="Requests shown">
+          <span className="hidden sm:inline text-[0.62rem] uppercase tracking-[0.18em] text-fg-muted font-mono">Show</span>
+          {(["key", "all"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={props.view === v}
+              onClick={() => props.setView(v)}
+              className={cn(
+                "px-2.5 py-1 text-[0.66rem] font-mono uppercase tracking-[0.12em] border",
+                props.view === v ? "border-accent text-accent" : "border-fg-faint text-fg-secondary hover:text-fg",
+              )}
+            >
+              {v === "key" ? "Key requests" : "All requests"}
+            </button>
+          ))}
+        </div>
       </div>
 
       {mode === "live" ? (
@@ -181,21 +247,22 @@ function SourceBar(props: {
           </div>
           {props.connectedUrl && props.liveState === "open" ? (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[0.62rem] uppercase tracking-[0.18em] text-fg-muted font-mono mr-1">
-                Label new requests as
+              {/* No page control picks the pane: a switch left on the wrong run misfiled requests. */}
+              <span
+                className={cn(
+                  "flex-1 min-w-[16rem] text-[0.74rem] font-mono",
+                  props.liveEntrances?.length ? "text-fg-secondary" : "text-warning",
+                )}
+              >
+                {entranceSummary(props.liveEntrances) ??
+                  "This proxy files requests by a run switch; restart it to file them by port."}
               </span>
-              <Button active={props.liveRun === "stock"} onClick={() => control("run", { run: "stock" })}>
-                Stock POI node (Raven off)
-              </Button>
-              <Button active={props.liveRun === "raven"} onClick={() => control("run", { run: "raven" })}>
-                Raven (Raven on)
-              </Button>
-              <span className="flex-1" />
               <Button onClick={() => control("reset", {})}>
                 <RotateCcw size={12} /> Clear
               </Button>
             </div>
           ) : null}
+          {notice ? <p className="text-[0.78rem] text-fg-secondary font-mono">{notice}</p> : null}
           {props.liveError || controlError ? (
             <p className="text-[0.78rem] text-error font-mono">{controlError ?? props.liveError}</p>
           ) : null}
@@ -243,6 +310,19 @@ function SourceBar(props: {
       )}
     </div>
   );
+}
+
+function savedFrom(res: unknown): { logFile?: string; events: number } | undefined {
+  const saved = (res as { saved?: { logFile?: unknown; events?: unknown } } | undefined)?.saved;
+  if (!saved || typeof saved.events !== "number") return undefined;
+  return { logFile: typeof saved.logFile === "string" ? saved.logFile : undefined, events: saved.events };
+}
+
+function clearNotice(saved: { logFile?: string; events: number }): string {
+  const n = `${saved.events} request${saved.events === 1 ? "" : "s"}`;
+  return saved.logFile
+    ? `Saved ${n} to ${saved.logFile}; open it in Replay a log.`
+    : `Cleared ${n}; this proxy writes no log file.`;
 }
 
 function originSummary(commitments: string[], origins: Record<string, string>): string {
@@ -337,15 +417,18 @@ function SideBySide({
   events,
   commitments,
   origins,
+  view,
+  showAll,
 }: {
   events: ObserverEvent[];
   commitments: string[];
   origins: Record<string, string>;
+  view: View;
+  showAll: () => void;
 }): ReactElement {
   const stock = events.filter((e) => e.run === "stock");
   const raven = events.filter((e) => e.run === "raven");
   const other = events.filter((e) => e.run !== "stock" && e.run !== "raven");
-  const t0 = events.length > 0 ? events[0].tMs : 0;
   return (
     <>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-fg-faint border border-fg-faint">
@@ -353,25 +436,28 @@ function SideBySide({
           tone="public"
           label="Stock POI node · Raven off"
           events={stock}
-          t0={stock[0]?.tMs ?? t0}
           commitments={commitments}
           origins={origins}
+          view={view}
+          showAll={showAll}
         />
         <RunPane
           tone="private"
           label="Raven · Raven on"
           events={raven}
-          t0={raven[0]?.tMs ?? t0}
           commitments={commitments}
           origins={origins}
+          view={view}
+          showAll={showAll}
         />
       </div>
       {other.length > 0 ? (
         <div className="mt-6 border border-fg-faint">
           <div className="px-4 py-2.5 border-b border-fg-faint text-[0.62rem] uppercase tracking-[0.2em] text-fg-secondary font-mono">
-            Unlabeled requests ({other.length}): set the run label before starting a run
+            Unlabeled requests ({other.length}), recorded without a run
           </div>
-          <EventList events={other} t0={other[0].tMs} commitments={commitments} />
+          <ViewNote events={other} view={view} showAll={showAll} />
+          <EventList events={other} view={view} />
         </div>
       ) : null}
     </>
@@ -382,28 +468,18 @@ function RunPane(props: {
   tone: "public" | "private";
   label: string;
   events: ObserverEvent[];
-  t0: number;
   commitments: string[];
   origins: Record<string, string>;
+  view: View;
+  showAll: () => void;
 }): ReactElement {
   const { events } = props;
   const watched = props.commitments.length;
-  const toAgg = events.filter((e) => e.upstream === "aggregator");
-  const toRaven = events.filter((e) => e.upstream === "raven");
-  const readLeaks = events.filter(isReadLeak);
-  const writes = events.filter((e) => explain(e).kind === "write");
-  const namedNotes = new Set(readLeaks.flatMap((e) => e.requestMatches.map((m) => m.commitment)));
+  // The verdict and counters cover every request in the pane, whatever the list shows.
+  const sum = paneSummary(events, watched);
+  const { verdict, readLeaks, writes, shortChecked } = sum;
   const namedLabel =
-    namedNotes.size === 0 ? "notes" : namedNotes.size === 1 ? "one of your notes" : `${namedNotes.size} of your notes`;
-  // A request searched for fewer commitments than are watched now (an older log, or a body
-  // evicted before the list grew) is not evidence about the notes added since.
-  const shortChecked = events.filter(
-    (e) => e.rescanDropped || (e.watchedAtScan !== undefined && e.watchedAtScan < watched),
-  ).length;
-  const verdict: "leak" | "clean" | "unchecked" =
-    readLeaks.length > 0 ? "leak" : watched === 0 ? "unchecked" : "clean";
-  const up = events.reduce((s, e) => s + e.requestBytes, 0);
-  const down = events.reduce((s, e) => s + e.responseBytes, 0);
+    sum.namedNotes === 0 ? "notes" : sum.namedNotes === 1 ? "one of your notes" : `${sum.namedNotes} of your notes`;
   const dot = props.tone === "public" ? "bg-public" : "bg-private";
 
   return (
@@ -427,7 +503,7 @@ function RunPane(props: {
           >
             <p className="font-serif text-[1.6rem] leading-tight">
               {verdict === "leak"
-                ? `${readLeaks.length} read${readLeaks.length === 1 ? "" : "s"} named ${namedLabel}`
+                ? `${readLeaks} read${readLeaks === 1 ? "" : "s"} named ${namedLabel}`
                 : verdict === "clean"
                   ? "No read named a note"
                   : "Nothing to check: watching 0 commitments"}
@@ -438,8 +514,8 @@ function RunPane(props: {
                 : verdict === "clean"
                   ? `Of ${events.length} request${events.length === 1 ? "" : "s"}, none carries any of the ${watched} watched commitment${watched === 1 ? "" : "s"} (${originSummary(props.commitments, props.origins)}) in any encoding checked. Only notes on the list can be detected: the notes this run spends must be on it.`
                   : "No commitment is on the watch list, so no request was searched. Load the wallet's commitments first."}
-              {writes.length > 0
-                ? ` ${writes.length} proof submission${writes.length === 1 ? "" : "s"} went to the aggregator, as in both runs.`
+              {writes > 0
+                ? ` ${writes} proof submission${writes === 1 ? "" : "s"} went to the aggregator, as in both runs.`
                 : ""}
             </p>
             {verdict !== "unchecked" && shortChecked > 0 ? (
@@ -449,12 +525,13 @@ function RunPane(props: {
             ) : null}
           </div>
           <dl className="grid grid-cols-4 gap-px bg-fg-faint border-b border-fg-faint">
-            <Stat label="to aggregator" value={String(toAgg.length)} />
-            <Stat label="to Raven" value={String(toRaven.length)} />
-            <Stat label="sent" value={formatBytes(up)} />
-            <Stat label="received" value={formatBytes(down)} />
+            <Stat label="to aggregator" value={String(sum.toAggregator)} />
+            <Stat label="to Raven" value={String(sum.toRaven)} />
+            <Stat label="sent" value={formatBytes(sum.sentBytes)} />
+            <Stat label="received" value={formatBytes(sum.receivedBytes)} />
           </dl>
-          <EventList events={events} t0={props.t0} commitments={props.commitments} />
+          <ViewNote events={events} view={props.view} showAll={props.showAll} />
+          <EventList events={events} view={props.view} />
         </>
       )}
     </div>
@@ -470,34 +547,71 @@ function Stat({ label, value }: { label: string; value: string }): ReactElement 
   );
 }
 
-function EventList(props: { events: ObserverEvent[]; t0: number; commitments: string[] }): ReactElement {
+function ViewNote(props: { events: ObserverEvent[]; view: View; showAll: () => void }): ReactElement | null {
+  if (props.view === "all") return null;
+  const kv = keyView(props.events);
+  const total = props.events.length;
+  return (
+    <p className="px-4 py-2 border-b border-fg-faint bg-bg-secondary text-[0.74rem] text-fg-secondary">
+      {kv.folded === 0 ? (
+        `Showing all ${total} request${total === 1 ? "" : "s"}.`
+      ) : (
+        <>
+          Showing {kv.shown} of {total} requests ({kv.folded} supporting request{kv.folded === 1 ? "" : "s"} folded:{" "}
+          {kv.foldedKinds.join(", ")}).{" "}
+          <button type="button" onClick={props.showAll} className="font-mono text-[0.68rem] uppercase tracking-[0.12em] text-accent hover:text-fg">
+            Show all requests
+          </button>
+        </>
+      )}
+    </p>
+  );
+}
+
+function ListHeader(): ReactElement {
+  return (
+    <li className="sticky top-0 z-10 px-4 py-1.5 flex items-center gap-2 font-mono text-[0.56rem] uppercase tracking-[0.16em] text-fg-muted bg-bg-secondary">
+      <span className="w-3 shrink-0" />
+      <span className="w-14 shrink-0">Started</span>
+      <span className="flex-1">Request</span>
+      <span className="w-14 shrink-0 text-right">Took</span>
+      <span className="w-32 shrink-0 text-right">Sent · received</span>
+    </li>
+  );
+}
+
+function EventList(props: { events: ObserverEvent[]; view: View }): ReactElement {
   const listRef = useRef<HTMLOListElement>(null);
   const count = props.events.length;
+  const rows = useMemo(
+    () => (props.view === "key" ? keyView(props.events).rows : props.events.map((e) => [e])),
+    [props.events, props.view],
+  );
   // Scroll the list, not the window, so two growing panes never fight over the page.
   useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [count]);
+  }, [count, props.view]);
   return (
     <ol ref={listRef} className="max-h-[68vh] overflow-y-auto divide-y divide-fg-faint">
-      {props.events.map((e) => (
-        <EventRow key={e.id} event={e} t0={props.t0} />
-      ))}
+      <ListHeader />
+      {rows.map((group) =>
+        group.length === 1 ? <EventRow key={group[0].id} event={group[0]} /> : <GroupRow key={group[0].id} events={group} />,
+      )}
     </ol>
   );
 }
 
-function EventRow({ event: e, t0 }: { event: ObserverEvent; t0: number }): ReactElement {
+function GroupRow({ events }: { events: ObserverEvent[] }): ReactElement {
   const [open, setOpen] = useState(false);
-  const info = explain(e);
-  const leak = isReadLeak(e);
-  const dest =
-    e.upstream === "aggregator"
-      ? "text-public border-public/50"
-      : "text-private border-private/50";
-
+  const first = events[0];
+  const info = explain(first);
+  // Completion order can put a later-started request first.
+  const starts = events.map((e) => e.tMs);
+  const up = events.reduce((s, e) => s + e.requestBytes, 0);
+  const down = events.reduce((s, e) => s + e.responseBytes, 0);
   return (
-    <li className={cn("text-[0.8rem]", leak && "bg-public-dim border-l-2 border-public")}>
+    <li className="text-[0.8rem]">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -505,18 +619,79 @@ function EventRow({ event: e, t0 }: { event: ObserverEvent; t0: number }): React
       >
         <div className="flex items-center gap-2 min-w-0">
           {open ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
-          <span className="font-mono-num text-[0.68rem] text-fg-muted w-14 shrink-0">
-            +{((e.tMs - t0) / 1000).toFixed(2)}s
+          <span className="font-mono-num text-[0.68rem] text-fg-muted w-14 shrink-0">{clockTime(Math.min(...starts))}</span>
+          <Upstream event={first} />
+          <span className="font-mono text-[0.72rem] text-fg min-w-0 break-all">
+            {first.method} {first.rpcMethod ?? first.routeTemplate}
           </span>
-          <span className={cn("font-mono text-[0.58rem] uppercase tracking-[0.14em] border px-1.5 py-0.5 shrink-0", dest)}>
-            {e.upstream === "aggregator" ? "aggregator" : "raven"}
+          <span className="font-mono-num text-[0.68rem] text-fg border border-fg-faint px-1.5 shrink-0">×{events.length}</span>
+          <span className="ml-auto w-14 shrink-0" />
+          <Sizes up={up} down={down} />
+        </div>
+        <div className="pl-[4.9rem] flex flex-wrap items-baseline gap-x-2">
+          <span className="text-fg-secondary">
+            {info.title}, {events.length} times to {clockTime(Math.max(...starts))}.
           </span>
+          <span className="text-fg-muted">{info.learns}</span>
+        </div>
+      </button>
+      {open ? (
+        <ol className="border-t border-fg-faint divide-y divide-fg-faint bg-bg-secondary">
+          {events.map((e) => (
+            <EventRow key={e.id} event={e} nested />
+          ))}
+        </ol>
+      ) : null}
+    </li>
+  );
+}
+
+function Upstream({ event: e }: { event: ObserverEvent }): ReactElement {
+  const dest = e.upstream === "aggregator" ? "text-public border-public/50" : "text-private border-private/50";
+  return (
+    <span className={cn("font-mono text-[0.58rem] uppercase tracking-[0.14em] border px-1.5 py-0.5 shrink-0", dest)}>
+      {e.upstream === "aggregator" ? "aggregator" : "raven"}
+    </span>
+  );
+}
+
+function Sizes({ up, down }: { up: number; down: number }): ReactElement {
+  return (
+    <span className="w-32 font-mono-num text-[0.66rem] text-fg-muted shrink-0 text-right whitespace-nowrap" title="sent · received">
+      {formatBytes(up)} · {formatBytes(down)}
+    </span>
+  );
+}
+
+function EventRow({ event: e, nested = false }: { event: ObserverEvent; nested?: boolean }): ReactElement {
+  const [open, setOpen] = useState(false);
+  const info = explain(e);
+  const leak = isReadLeak(e);
+
+  return (
+    <li className={cn("text-[0.8rem]", leak && "bg-public-dim border-l-2 border-public")}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn("w-full text-left px-4 py-2.5 flex flex-col gap-1 hover:bg-bg-hover", nested && "pl-8")}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {open ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
+          <span className="font-mono-num text-[0.68rem] text-fg-muted w-14 shrink-0" title={`Started ${e.t}`}>
+            {clockTime(e.tMs)}
+          </span>
+          <Upstream event={e} />
           <span className="font-mono text-[0.72rem] text-fg min-w-0 break-all">
             {e.method} {e.rpcMethod ?? e.routeTemplate}
           </span>
-          <span className="ml-auto font-mono-num text-[0.66rem] text-fg-muted shrink-0">
-            {formatBytes(e.requestBytes)} up · {formatBytes(e.responseBytes)} down
+          {!e.error && e.status !== undefined && (e.status < 200 || e.status >= 300) ? (
+            <span className="font-mono-num text-[0.66rem] text-error shrink-0">HTTP {e.status}</span>
+          ) : null}
+          {e.error ? <span className="font-mono text-[0.66rem] text-error shrink-0">error</span> : null}
+          <span className="ml-auto w-14 font-mono-num text-[0.7rem] text-fg-secondary shrink-0 text-right" title="This request's round trip">
+            {formatDuration(e.durationMs)}
           </span>
+          <Sizes up={e.requestBytes} down={e.responseBytes} />
         </div>
         <div className="pl-[4.9rem] flex flex-wrap items-baseline gap-x-2">
           <span className="text-fg-secondary">{info.title}.</span>
@@ -553,7 +728,7 @@ function EventDetail({ event: e }: { event: ObserverEvent }): ReactElement {
         rows={[
           ["destination", `${e.destination}${e.rpcMethod ? e.route : e.routeTemplate}`],
           ["status", e.error ? `error: ${e.error}` : String(e.status ?? "")],
-          ["time", `${e.t}${e.durationMs !== undefined ? ` · ${formatLatency(e.durationMs)}` : ""}`],
+          ["time", `${e.t}${e.durationMs !== undefined ? ` · ${formatDuration(e.durationMs)}` : ""}`],
           ...Object.entries(e.requestHeaders ?? {}).map(([k, v]) => [`req ${k}`, v] as [string, string]),
           ...Object.entries(e.responseHeaders ?? {}).map(([k, v]) => [`res ${k}`, v] as [string, string]),
         ]}

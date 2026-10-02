@@ -3,12 +3,14 @@
 // aggregator). Bytes are forwarded unchanged; each exchange is recorded, checked for the
 // watched note commitments, streamed to the observer page over SSE and written to a JSON log.
 // Each upstream gets its own listen port: the SDK refuses a pin source that shares the Raven
-// endpoint's origin, so one port for both would turn pin verification off.
+// endpoint's origin, so one port for both would turn pin verification off. A third port is the
+// stock entrance: the port a request arrives on decides its run, so no switch can misfile it.
 
 import { createServer, request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib";
 
@@ -242,13 +244,13 @@ export async function startObserverProxy(options) {
   const opts = {
     host: "127.0.0.1",
     port: 8790,
-    run: "unlabeled",
     source: "live",
     // An absent CLI flag arrives as undefined and must not override a default.
     ...Object.fromEntries(Object.entries(options).filter(([, v]) => v !== undefined)),
   };
   // Port 0 asks for an ephemeral port, so its neighbour is meaningless.
   const aggregatorPort = opts.aggregatorPort ?? (opts.port === 0 ? 0 : opts.port + 1);
+  const stockPort = opts.stockPort ?? (aggregatorPort === 0 ? 0 : aggregatorPort + 1);
   const upstreams = {
     raven: opts.raven ? opts.raven.replace(/\/$/, "") : undefined,
     aggregator: opts.aggregator ? opts.aggregator.replace(/\/$/, "") : undefined,
@@ -257,7 +259,6 @@ export async function startObserverProxy(options) {
   let needles = [];
   // First place each watched commitment came from, shown beside it on the page.
   let origins = {};
-  let run = opts.run;
   const events = [];
   const bodies = new Map();
   let bodyBytes = 0;
@@ -325,7 +326,7 @@ export async function startObserverProxy(options) {
       upstreams,
       commitments,
       commitmentOrigins: origins,
-      run,
+      entrances,
       learn: Boolean(opts.learn),
       note: opts.note,
       logFile: logPath ? logPath.split(/[\\/]/).pop() : undefined,
@@ -373,6 +374,7 @@ export async function startObserverProxy(options) {
     }
     flushLog();
     const previous = logPath;
+    const saved = { logFile: previous ? previous.split(/[\\/]/).pop() : undefined, events: events.length };
     events.length = 0;
     bodies.clear();
     bodyBytes = 0;
@@ -383,6 +385,7 @@ export async function startObserverProxy(options) {
     if (!opts.quiet && previous) {
       process.stdout.write(`log kept at ${previous}; new log ${logPath}\n`);
     }
+    return saved;
   }
 
   setCommitments(opts.commitments ?? [], opts.commitmentsOrigin ?? "list");
@@ -458,6 +461,7 @@ export async function startObserverProxy(options) {
     }
     if (req.method === "POST") {
       let body = {};
+      let saved;
       try {
         const raw = await readBody(req);
         body = raw.length ? JSON.parse(raw.toString("utf8")) : {};
@@ -466,12 +470,15 @@ export async function startObserverProxy(options) {
         res.end("body must be JSON");
         return;
       }
-      if (path === "/observer/run" && typeof body.run === "string" && body.run.length <= 32) {
-        run = body.run;
-      } else if (path === "/observer/commitments" && Array.isArray(body.commitments)) {
+      if (path === "/observer/run") {
+        res.writeHead(410, { "content-type": "text/plain" });
+        res.end("the entrance port decides the run");
+        return;
+      }
+      if (path === "/observer/commitments" && Array.isArray(body.commitments)) {
         setCommitments(body.commitments, "page");
       } else if (path === "/observer/reset") {
-        rotateLog();
+        saved = rotateLog();
       } else {
         res.writeHead(400, { "content-type": "text/plain" });
         res.end("unknown control request");
@@ -480,14 +487,15 @@ export async function startObserverProxy(options) {
       broadcast("snapshot", logDocument());
       scheduleLog();
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(meta()));
+      // meta() already names the new file; the page needs the one just written.
+      res.end(JSON.stringify(saved ? { ...meta(), saved } : meta()));
       return;
     }
     res.writeHead(404, { "content-type": "text/plain" });
     res.end("not found");
   }
 
-  async function handleProxy(req, res, upstreamName, rest) {
+  async function handleProxy(req, res, upstreamName, rest, run) {
     const base = upstreams[upstreamName];
     if (!base) {
       res.writeHead(502, { "content-type": "text/plain" });
@@ -495,6 +503,8 @@ export async function startObserverProxy(options) {
       return;
     }
     const started = Date.now();
+    // Durations from a monotonic clock: the wall clock can step backwards mid-request.
+    const startedMono = performance.now();
     const reqBody = await readBody(req);
     const target = joinUpstream(base, rest);
     const headers = {};
@@ -564,7 +574,7 @@ export async function startObserverProxy(options) {
           record({
             ...event,
             status: upstreamRes.statusCode,
-            durationMs: Date.now() - started,
+            durationMs: Math.round(performance.now() - startedMono),
             responseBytes: wire.length,
             responseDecodedBytes: decoded.length,
             responseContentType: upstreamRes.headers["content-type"],
@@ -588,7 +598,7 @@ export async function startObserverProxy(options) {
       record({
         ...event,
         status: undefined,
-        durationMs: Date.now() - started,
+        durationMs: Math.round(performance.now() - startedMono),
         responseBytes: 0,
         responseMatches: [],
         error: err.message,
@@ -598,9 +608,12 @@ export async function startObserverProxy(options) {
   }
 
   const listenUrls = {};
+  // Filled once the ports are bound: which run each entrance records, for the page and the log.
+  const entrances = [];
 
-  // `leg` is the one upstream this listener forwards; the main listener also serves the page.
-  function serve(leg) {
+  // `leg` is the one upstream this listener forwards and `run` the run every request through it
+  // records; the main listener also serves the page.
+  function serve(leg, run) {
     return createServer((req, res) => {
       const url = req.url ?? "/";
       const path = url.split("?")[0];
@@ -609,11 +622,15 @@ export async function startObserverProxy(options) {
         const m = url.match(/^\/(raven|aggregator)(\/.*|\?.*)?$/s);
         if (m && m[1] === leg) {
           const rest = m[2] ? (m[2].startsWith("?") ? `/${m[2]}` : m[2]) : "/";
-          return handleProxy(req, res, m[1], rest);
+          return handleProxy(req, res, m[1], rest, run);
         }
         if (m) {
           res.writeHead(421, { "content-type": "text/plain" });
-          res.end(`the ${m[1]} leg listens on ${listenUrls[m[1]]}/${m[1]}`);
+          res.end(
+            m[1] === "aggregator"
+              ? `the aggregator leg listens on ${listenUrls.aggregator}/aggregator (Raven on) and ${listenUrls.stock}/aggregator (Raven off)`
+              : `the raven leg listens on ${listenUrls.raven}/raven`,
+          );
           return;
         }
         res.writeHead(404, { "content-type": "text/plain" });
@@ -638,27 +655,29 @@ export async function startObserverProxy(options) {
     return `http://${opts.host}:${server.address().port}`;
   }
 
-  const server = serve("raven");
-  const aggregatorServer = serve("aggregator");
-  const url = await listen(server, opts.port);
-  listenUrls.raven = url;
-  let aggregatorUrl;
+  const servers = [serve("raven", "raven"), serve("aggregator", "raven"), serve("aggregator", "stock")];
+  const bound = [];
   try {
-    aggregatorUrl = await listen(aggregatorServer, aggregatorPort);
+    for (const [i, port] of [opts.port, aggregatorPort, stockPort].entries()) {
+      bound.push(await listen(servers[i], port));
+    }
   } catch (err) {
-    await new Promise((ok) => server.close(ok));
+    await Promise.all(servers.slice(0, bound.length).map((s) => new Promise((ok) => s.close(ok))));
     throw err;
   }
-  listenUrls.aggregator = aggregatorUrl;
+  const [url, aggregatorUrl, stockUrl] = bound;
+  Object.assign(listenUrls, { raven: url, aggregator: aggregatorUrl, stock: stockUrl });
+  entrances.push(
+    { run: "raven", url: `${url}/raven` },
+    { run: "raven", url: `${aggregatorUrl}/aggregator` },
+    { run: "stock", url: `${stockUrl}/aggregator` },
+  );
 
   return {
     url,
     aggregatorUrl,
+    stockUrl,
     events,
-    setRun(label) {
-      run = label;
-      broadcast("snapshot", logDocument());
-    },
     setCommitments(list, origin = "list") {
       setCommitments(list, origin);
       broadcast("snapshot", logDocument());
@@ -680,10 +699,7 @@ export async function startObserverProxy(options) {
       flushLog();
       for (const res of clients) res.end();
       clients.clear();
-      await Promise.all([
-        new Promise((ok) => server.close(ok)),
-        new Promise((ok) => aggregatorServer.close(ok)),
-      ]);
+      await Promise.all(servers.map((s) => new Promise((ok) => s.close(ok))));
     },
   };
 }
@@ -707,6 +723,9 @@ function parseArgs(argv) {
       case "--aggregator-port":
         out.aggregatorPort = Number(next());
         break;
+      case "--stock-port":
+        out.stockPort = Number(next());
+        break;
       case "--host":
         out.host = next();
         break;
@@ -725,8 +744,10 @@ function parseArgs(argv) {
       case "--log":
         out.logPath = resolve(next());
         break;
+      // Kept so older start commands still run; the entrance port now decides the run.
       case "--run":
-        out.run = next();
+        next();
+        out.runIgnored = true;
         break;
       case "--learn":
         out.learn = true;
@@ -771,18 +792,34 @@ const USAGE = `observer proxy
                             (its watch list); repeatable
   --log <path>              JSON log path (default observer-logs/session-<time>.json); Clear on
                             the page keeps it and continues in <path>.rN.json
-  --run <label>             initial run label: stock or raven (the page can change it)
   --learn                   also watch every commitment the wallet names to the aggregator in
                             the clear (status and path reads, proof-submission outputs); earlier
                             requests are re-checked each time the list grows
   --allow-origin <origin>   a page origin besides loopback allowed to read the log (repeatable)
   --port <n>                listen port for Raven and the page (default 8790)
-  --aggregator-port <n>     listen port for the aggregator (default port + 1). A separate
-                            origin: the SDK refuses a pin source on the Raven endpoint's origin
+  --aggregator-port <n>     listen port for the aggregator, Raven on (default port + 1). A
+                            separate origin: the SDK refuses a pin source on the Raven endpoint's
+                            origin
+  --stock-port <n>          listen port for the aggregator, Raven off (default aggregator-port
+                            + 1). Requests through it are the stock run; through the other two
+                            ports, the raven run
   --host <addr>             listen address (default 127.0.0.1)
 
 Env fallbacks: OBSERVER_RAVEN_UPSTREAM, OBSERVER_AGGREGATOR_UPSTREAM, OBSERVER_PORT,
-OBSERVER_AGGREGATOR_PORT, OBSERVER_COMMITMENTS (comma-separated).`;
+OBSERVER_AGGREGATOR_PORT, OBSERVER_STOCK_PORT, OBSERVER_COMMITMENTS (comma-separated).`;
+
+export function startupBanner(proxy) {
+  const { upstreams, commitments } = proxy.logDocument().meta;
+  return (
+    `observer proxy on ${proxy.url}\n` +
+    `  raven      ${proxy.url}/raven  ->  ${upstreams.raven ?? "(not set)"}  (Raven on)\n` +
+    `  aggregator ${proxy.aggregatorUrl}/aggregator  ->  ${upstreams.aggregator ?? "(not set)"}  (Raven on)\n` +
+    `  stock      ${proxy.stockUrl}/aggregator  ->  ${upstreams.aggregator ?? "(not set)"}  (Raven off)\n` +
+    `  events     ${proxy.url}/observer/events\n` +
+    `  watching   ${commitments.length} commitment(s)\n` +
+    `  log        ${proxy.logPath}\n`
+  );
+}
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -802,23 +839,17 @@ async function main() {
     aggregatorPort:
       args.aggregatorPort ??
       (process.env.OBSERVER_AGGREGATOR_PORT ? Number(process.env.OBSERVER_AGGREGATOR_PORT) : undefined),
+    stockPort:
+      args.stockPort ?? (process.env.OBSERVER_STOCK_PORT ? Number(process.env.OBSERVER_STOCK_PORT) : undefined),
     raven: args.raven ?? process.env.OBSERVER_RAVEN_UPSTREAM,
     aggregator: args.aggregator ?? process.env.OBSERVER_AGGREGATOR_UPSTREAM,
     commitments,
     logPath: args.logPath ?? resolve("observer-logs", `session-${stamp}.json`),
-    run: args.run,
     learn: args.learn,
     allowOrigins: args.allowOrigins,
   });
-  const doc = proxy.logDocument();
-  process.stdout.write(
-    `observer proxy on ${proxy.url}\n` +
-      `  raven      ${proxy.url}/raven  ->  ${doc.meta.upstreams.raven ?? "(not set)"}\n` +
-      `  aggregator ${proxy.aggregatorUrl}/aggregator  ->  ${doc.meta.upstreams.aggregator ?? "(not set)"}\n` +
-      `  events     ${proxy.url}/observer/events\n` +
-      `  watching   ${doc.meta.commitments.length} commitment(s); run label "${doc.meta.run}"\n` +
-      `  log        ${proxy.logPath}\n`,
-  );
+  if (args.runIgnored) process.stderr.write("--run is ignored: the entrance port decides the run\n");
+  process.stdout.write(startupBanner(proxy));
   const stop = async () => {
     await proxy.close();
     process.exit(0);

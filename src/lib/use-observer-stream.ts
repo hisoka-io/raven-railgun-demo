@@ -45,13 +45,14 @@ export function useObserverStream(url: string | undefined): {
 
 export async function postObserverControl(
   url: string,
-  path: "run" | "commitments" | "reset",
+  path: "commitments" | "reset",
   body: unknown,
-): Promise<void> {
+): Promise<unknown> {
   const res = await fetch(`${url.replace(/\/$/, "")}/observer/${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+  return res.json().catch(() => undefined);
 }
