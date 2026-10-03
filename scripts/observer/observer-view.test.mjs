@@ -9,6 +9,7 @@ import { startObserverProxy } from "./proxy.mjs";
 import {
   clockTime,
   formatDuration,
+  highlightTone,
   isKeyRequest,
   isReadLeak,
   keyView,
@@ -42,14 +43,11 @@ const agg = (rpcMethod, extra = {}) =>
   ev({ upstream: "aggregator", method: "POST", rpcMethod, routeTemplate: "/", ...extra });
 const MATCH = [{ commitment: "ab".repeat(32), encodings: ["hex"] }];
 
-test("Key view keeps the encrypted path queries and every write; folds routine traffic", () => {
-  const key = [
-    raven("POST", "/v1/instance/{id}/batch"),
-    raven("POST", "/v1/instance/{id}/query"),
+test("Key view keeps the encrypted path queries; folds routine traffic and proof submissions", () => {
+  const key = [raven("POST", "/v1/instance/{id}/batch"), raven("POST", "/v1/instance/{id}/query")];
+  const folded = [
     agg("ppoi_submit_transact_proof", { requestMatches: MATCH }),
     agg("ppoi_submit_legacy_transact_proofs"),
-  ];
-  const folded = [
     raven("POST", "/v1/instance/{id}/session"),
     raven("GET", "/v1/poi/{listKey}/bc-prefixes"),
     raven("GET", "/v1/health/ready"),
@@ -91,8 +89,8 @@ test("runs of the same routine request merge into one row; attention rows never 
     raven("POST", "/v1/instance/{id}/session"),
     raven("POST", "/v1/instance/{id}/batch"),
     raven("POST", "/v1/instance/{id}/batch"),
-    agg("ppoi_submit_transact_proof", { requestMatches: MATCH }),
-    agg("ppoi_submit_transact_proof", { requestMatches: MATCH }),
+    agg("ppoi_submit_transact_proof", { requestMatches: MATCH, status: 500 }),
+    agg("ppoi_submit_transact_proof", { requestMatches: MATCH, status: 500 }),
     agg("ppoi_pois_per_list"),
     agg("ppoi_pois_per_list"),
     p(),
@@ -121,18 +119,54 @@ test("a repeat more than a minute after the last is a new row", () => {
   assert.deepEqual(kv.rows.map((r) => r.length), [3, 2]);
 });
 
-test("no view hides a leak, a proof write, an error or a non-2xx", () => {
+test("no view hides a leak, an error or a non-2xx, a failed proof write included", () => {
   const events = [
     agg("ppoi_pois_per_list"),
     agg("ppoi_poi_events", { requestMatches: MATCH }),
-    agg("ppoi_submit_transact_proof", { requestMatches: MATCH }),
+    agg("ppoi_submit_transact_proof", { requestMatches: MATCH, error: "socket hang up", status: undefined }),
+    agg("ppoi_submit_transact_proof", { status: 502 }),
     raven("GET", "/v1/health/ready", { error: "timeout", status: undefined }),
     agg("ppoi_node_status", { status: 500 }),
     raven("GET", "/v1/health/ready"),
+    agg("ppoi_submit_transact_proof", { requestMatches: MATCH }),
   ];
-  const shown = new Set(keyView(events).rows.flat().map((e) => e.id));
+  const kv = keyView(events);
+  const shown = new Set(kv.rows.flat().map((e) => e.id));
   for (const e of events.filter(needsAttention)) assert.ok(shown.has(e.id), JSON.stringify(e));
-  assert.equal(shown.size, 5);
+  assert.equal(shown.size, 6);
+  assert.ok(kv.rows.every((r) => r.length === 1));
+  assert.deepEqual(kv.foldedKinds.sort(), ["health", "proof submissions"]);
+});
+
+test("a proof submission folds in the Key view and the folded line names it", () => {
+  const write = agg("ppoi_submit_transact_proof", { requestMatches: MATCH });
+  const events = [
+    raven("GET", "/v1/poi/{listKey}/bc-prefixes"),
+    raven("POST", "/v1/instance/{id}/batch"),
+    write,
+    raven("POST", "/v1/instance/{id}/batch"),
+  ];
+  assert.equal(needsAttention(write), false);
+  assert.equal(isReadLeak(write), false);
+  const kv = keyView(events);
+  assert.equal(kv.rows.flat().some((e) => e.id === write.id), false);
+  assert.deepEqual(kv.rows.map((r) => r.map((x) => x.rpcMethod ?? x.routeTemplate)), [["/v1/instance/{id}/batch", "/v1/instance/{id}/batch"]]);
+  assert.equal(kv.folded, 2);
+  assert.deepEqual(kv.foldedKinds.sort(), ["index downloads", "proof submissions"]);
+  const page = readFileSync(new URL("../../src/pages/Observer.tsx", import.meta.url), "utf8");
+  assert.match(page, /kv\.foldedKinds\.join\(", "\)/);
+});
+
+test("a write is drawn amber, a read that names a note red, anything else plain", () => {
+  assert.equal(highlightTone(agg("ppoi_submit_transact_proof", { requestMatches: MATCH })), "amber");
+  assert.equal(highlightTone(agg("ppoi_submit_legacy_transact_proofs")), "amber");
+  assert.equal(highlightTone(agg("ppoi_submit_transact_proof", { status: 500 })), "amber");
+  assert.equal(highlightTone(agg("ppoi_pois_per_list")), "red");
+  assert.equal(highlightTone(agg("ppoi_merkle_proofs")), "red");
+  assert.equal(highlightTone(agg("ppoi_poi_events", { requestMatches: MATCH })), "red");
+  assert.equal(highlightTone(raven("GET", "/v1/health/ready", { requestMatches: MATCH })), "red");
+  assert.equal(highlightTone(agg("ppoi_poi_events")), "none");
+  assert.equal(highlightTone(raven("POST", "/v1/instance/{id}/batch")), "none");
 });
 
 test("the pane verdict and counters count every request, folded ones included", () => {
@@ -144,7 +178,7 @@ test("the pane verdict and counters count every request, folded ones included", 
     agg("ppoi_submit_transact_proof", { requestMatches: MATCH, requestBytes: 9, responseBytes: 10 }),
   ];
   const sum = paneSummary(events, 1);
-  assert.equal(keyView(events).shown, 2);
+  assert.equal(keyView(events).shown, 1);
   assert.deepEqual(
     { ...sum },
     {

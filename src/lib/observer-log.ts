@@ -275,10 +275,19 @@ export function formatDuration(ms: number | undefined): string {
   return `${(ms / 60_000).toFixed(1)} min`;
 }
 
-/** Rows no view may fold or merge: anything that names or carries a note, a write, or a failure. */
+/** Rows no view may fold or merge: a read that names a note, or a failure. A proof submission
+ *  carries notes in every setup, so it folds unless it failed. */
 export function needsAttention(e: ObserverEvent): boolean {
-  if (isReadLeak(e) || e.requestMatches.length > 0 || explain(e).kind === "write") return true;
+  if (isReadLeak(e)) return true;
   return Boolean(e.error) || e.status === undefined || e.status < 200 || e.status >= 300;
+}
+
+export type HighlightTone = "red" | "amber" | "none";
+
+/** Red marks a read that names a note; amber marks a proof submission. */
+export function highlightTone(e: ObserverEvent): HighlightTone {
+  if (isReadLeak(e)) return "red";
+  return explain(e).kind === "write" ? "amber" : "none";
 }
 
 // A repeat this far from the last one is a later step of the session, not part of the same burst.
@@ -306,6 +315,8 @@ function supportLabel(e: ObserverEvent): string {
       return "PIR parameters";
     case "status":
       return "node status";
+    case "write":
+      return "proof submissions";
     default:
       return e.upstream === "raven" && e.routeTemplate.startsWith("/v1/health") ? "health" : "other";
   }

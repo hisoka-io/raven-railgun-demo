@@ -7,13 +7,14 @@ import {
   entranceSummary,
   explain,
   formatDuration,
-  isReadLeak,
+  highlightTone,
   keyView,
   paneSummary,
   parseObserverLog,
   replayOffsets,
   shortCommitment,
   type ObserverEntrance,
+  type HighlightTone,
   type ObserverEvent,
   type ObserverLog,
 } from "@/lib/observer-log";
@@ -92,8 +93,9 @@ export function Observer(): ReactElement {
           <p className="mt-5 text-fg-secondary text-[1.02rem] leading-relaxed">
             Every request the wallet sends to the Proof of Innocence aggregator and to Raven passes
             through a recording proxy that forwards it unchanged. Each one is checked for the
-            wallet's own note commitments, in hex, decimal and raw bytes. A request that carries
-            one is marked red.
+            wallet's own note commitments, in hex, decimal and raw bytes. A read that carries one
+            is marked red; a proof submission, which names its new note commitments with or without
+            Raven, is marked amber.
           </p>
         </div>
 
@@ -557,8 +559,7 @@ function ViewNote(props: { events: ObserverEvent[]; view: View; showAll: () => v
         `Showing all ${total} request${total === 1 ? "" : "s"}.`
       ) : (
         <>
-          Showing {kv.shown} of {total} requests ({kv.folded} supporting request{kv.folded === 1 ? "" : "s"} folded:{" "}
-          {kv.foldedKinds.join(", ")}).{" "}
+          Showing {kv.shown} of {total} requests ({kv.folded} folded: {kv.foldedKinds.join(", ")}).{" "}
           <button type="button" onClick={props.showAll} className="font-mono text-[0.68rem] uppercase tracking-[0.12em] text-accent hover:text-fg">
             Show all requests
           </button>
@@ -647,7 +648,12 @@ function GroupRow({ events }: { events: ObserverEvent[] }): ReactElement {
 }
 
 function Upstream({ event: e }: { event: ObserverEvent }): ReactElement {
-  const dest = e.upstream === "aggregator" ? "text-public border-public/50" : "text-private border-private/50";
+  const dest =
+    e.upstream !== "aggregator"
+      ? "text-private border-private/50"
+      : highlightTone(e) === "amber"
+        ? "text-warning border-warning/60"
+        : "text-public border-public/50";
   return (
     <span className={cn("font-mono text-[0.58rem] uppercase tracking-[0.14em] border px-1.5 py-0.5 shrink-0", dest)}>
       {e.upstream === "aggregator" ? "aggregator" : "raven"}
@@ -666,10 +672,17 @@ function Sizes({ up, down }: { up: number; down: number }): ReactElement {
 function EventRow({ event: e, nested = false }: { event: ObserverEvent; nested?: boolean }): ReactElement {
   const [open, setOpen] = useState(false);
   const info = explain(e);
-  const leak = isReadLeak(e);
+  const tone = highlightTone(e);
+  const leak = tone === "red";
 
   return (
-    <li className={cn("text-[0.8rem]", leak && "bg-public-dim border-l-2 border-public")}>
+    <li
+      className={cn(
+        "text-[0.8rem]",
+        leak && "bg-public-dim border-l-2 border-public",
+        tone === "amber" && "bg-warning/5 border-l-2 border-warning",
+      )}
+    >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -715,13 +728,15 @@ function EventRow({ event: e, nested = false }: { event: ObserverEvent; nested?:
           </div>
         ) : null}
       </button>
-      {open ? <EventDetail event={e} /> : null}
+      {open ? <EventDetail event={e} tone={tone} /> : null}
     </li>
   );
 }
 
-function EventDetail({ event: e }: { event: ObserverEvent }): ReactElement {
+function EventDetail({ event: e, tone }: { event: ObserverEvent; tone: HighlightTone }): ReactElement {
   const matched = e.requestMatches.map((m) => m.commitment);
+  // A read's response is the server's own data, not a disclosure; only a write marks both bodies.
+  const answered = tone === "amber" ? e.responseMatches.map((m) => m.commitment) : [];
   return (
     <div className="px-4 pb-4 pl-[5.9rem] flex flex-col gap-3">
       <KeyVals
@@ -733,8 +748,8 @@ function EventDetail({ event: e }: { event: ObserverEvent }): ReactElement {
           ...Object.entries(e.responseHeaders ?? {}).map(([k, v]) => [`res ${k}`, v] as [string, string]),
         ]}
       />
-      <Preview label={`Request body · ${formatBytes(e.requestBytes)}`} preview={e.requestPreview} marks={matched} />
-      <Preview label={`Response body · ${formatBytes(e.responseBytes)}`} preview={e.responsePreview} marks={[]} />
+      <Preview label={`Request body · ${formatBytes(e.requestBytes)}`} preview={e.requestPreview} marks={matched} tone={tone} />
+      <Preview label={`Response body · ${formatBytes(e.responseBytes)}`} preview={e.responsePreview} marks={answered} tone={tone} />
     </div>
   );
 }
@@ -756,6 +771,7 @@ function Preview(props: {
   label: string;
   preview: ObserverEvent["requestPreview"];
   marks: string[];
+  tone: HighlightTone;
 }): ReactElement | null {
   const p = props.preview;
   if (!p || p.kind === "empty") return null;
@@ -767,19 +783,19 @@ function Preview(props: {
         {p.truncated ? " · truncated" : ""}
       </div>
       <pre className="px-3 py-2 font-mono text-[0.66rem] text-fg-secondary whitespace-pre-wrap break-all leading-relaxed max-h-64 overflow-auto">
-        {highlight(p.text, props.marks)}
+        {highlight(p.text, props.marks, props.tone === "amber" ? "bg-warning/35" : "bg-public/35")}
       </pre>
     </div>
   );
 }
 
-function highlight(text: string, commitments: string[]): ReactNode {
+function highlight(text: string, commitments: string[], markBg: string): ReactNode {
   const needles = commitments.map((c) => c.replace(/^0+/, "")).filter((c) => c.length >= 32);
   if (needles.length === 0) return text;
   const pattern = new RegExp(`(${needles.join("|")})`, "gi");
   return text.split(pattern).map((part, i) =>
     i % 2 === 1 ? (
-      <mark key={i} className="bg-public/35 text-fg px-0.5">
+      <mark key={i} className={cn(markBg, "text-fg px-0.5")}>
         {part}
       </mark>
     ) : (
